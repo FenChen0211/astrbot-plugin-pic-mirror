@@ -56,7 +56,7 @@ class ImageHandler:
             logger.info(f"找到的图像源: {len(image_sources)}个")
             
             if not image_sources:
-                yield self._get_error_message("未找到图像")
+                yield self._get_error_message(event, "未找到图像")
                 return
             
             # 3. 发送处理中提示（非静默模式）
@@ -83,11 +83,11 @@ class ImageHandler:
                     continue
             
             if not processed:
-                yield self._get_error_message("处理失败")
+                yield self._get_error_message(event, "处理失败")
                 
         except Exception as e:
             logger.error(f"处理指令异常: {str(e)}", exc_info=True)
-            yield self._get_error_message("处理失败")
+            yield self._get_error_message(event, "处理失败")
     
     async def _process_avatar(self, event, qq_number: str, mode: str):
         """处理用户头像"""
@@ -95,13 +95,13 @@ class ImageHandler:
         
         avatar_data = await self.avatar_service.get_avatar(qq_number)
         if not avatar_data:
-            yield self._get_error_message("获取头像失败")
+            yield self._get_error_message(event, "获取头像失败")
             return
         
         # 保存头像临时文件
         input_path = await self._save_temp_file(avatar_data, f"avatar_{qq_number}", ".jpg")
         if not input_path:
-            yield self._get_error_message("保存头像失败")
+            yield self._get_error_message(event, "保存头像失败")
             return
         
         # 处理头像
@@ -139,11 +139,11 @@ class ImageHandler:
                 
             else:
                 logger.warning(f"图像处理失败: {message}")
-                yield self._get_error_message("处理失败")
+                yield self._get_error_message(event, "处理失败")
                 
         except Exception as e:
             logger.error(f"处理单图像失败: {str(e)}", exc_info=True)
-            yield self._get_error_message("处理失败")
+            yield self._get_error_message(event, "处理失败")
     
     async def _prepare_image_file(self, image_source: str) -> Path:
         """准备图像文件"""
@@ -227,7 +227,14 @@ class ImageHandler:
             logger.warning(f"清理输入文件失败: {e}")
     
     def _get_result_message(self, event, output_path: Path, mode: str):
-        """获取结果消息"""
+        """
+        获取结果消息
+        
+        Args:
+            event: 消息事件对象
+            output_path: 输出文件路径
+            mode: 对称模式
+        """
         if self.config.silent_mode:
             return event.chain_result([Comp.Image(file=str(output_path))])
         else:
@@ -237,8 +244,14 @@ class ImageHandler:
                 Comp.Image(file=str(output_path))
             ])
     
-    def _get_error_message(self, message: str):
-        """获取错误消息"""
+    def _get_error_message(self, event, message: str):
+        """
+        获取错误消息
+        
+        Args:
+            event: 消息事件对象
+            message: 错误消息
+        """
         if self.config.silent_mode:
             return event.plain_result(f"❌ {message}")
         else:

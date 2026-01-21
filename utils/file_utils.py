@@ -42,7 +42,7 @@ class FileUtils:
     @staticmethod
     def get_file_extension(url_or_path: str) -> Optional[str]:
         """
-        从URL或路径中提取文件扩展名
+        从URL或路径中提取文件扩展名（改进版）
         
         Args:
             url_or_path: URL或文件路径
@@ -52,9 +52,14 @@ class FileUtils:
         """
         # 移除查询参数
         path = url_or_path.split('?')[0]
+        
         # 提取扩展名
         match = re.search(r'\.([a-zA-Z0-9]+)$', path)
-        return f".{match.group(1).lower()}" if match else None
+        if match:
+            ext = f".{match.group(1).lower()}"
+            # 确保扩展名是我们支持的格式
+            return ext
+        return None
     
     @staticmethod
     def is_image_url(url: str) -> bool:
@@ -73,10 +78,10 @@ class FileUtils:
     @staticmethod
     def generate_filename(original_url: str, mode: str) -> str:
         """
-        生成唯一的文件名
+        生成唯一的文件名（改进版：保持原始扩展名）
         
         Args:
-            original_url: 原始图像URL
+            original_url: 原始图像URL或标识符
             mode: 对称模式
             
         Returns:
@@ -86,7 +91,16 @@ class FileUtils:
         hash_input = f"{original_url}_{mode}"
         file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:8]
         
-        ext = FileUtils.get_file_extension(original_url) or '.png'
+        # 尝试从原始URL获取扩展名
+        ext = FileUtils.get_file_extension(original_url)
+        
+        if not ext:
+            # 如果没有扩展名，根据原始URL判断
+            if 'qq_' in original_url or 'avatar_' in original_url:
+                ext = '.jpg'  # 头像通常是jpg
+            else:
+                ext = '.png'  # 默认
+        
         return f"mirror_{mode}_{file_hash}{ext}"
     
     @staticmethod
@@ -165,3 +179,43 @@ class FileUtils:
                         pass
         except Exception as e:
             pass
+    
+    @staticmethod
+    def detect_image_format_by_magic(data: bytes) -> Optional[str]:
+        """
+        通过魔数检测图像格式
+        
+        Args:
+            data: 图像数据
+            
+        Returns:
+            扩展名，如 '.jpg', '.png', '.gif'
+        """
+        if len(data) < 12:
+            return None
+        
+        # GIF: GIF87a or GIF89a
+        if data[:6] in [b'GIF87a', b'GIF89a']:
+            return '.gif'
+        
+        # PNG: \x89PNG\r\n\x1a\n
+        if data[:8] == b'\x89PNG\r\n\x1a\n':
+            return '.png'
+        
+        # JPEG: \xff\xd8\xff
+        if data[:3] == b'\xff\xd8\xff':
+            return '.jpg'
+        
+        # JPEG 2000
+        if data[:12] == b'\x00\x00\x00\x0c\x6a\x50\x20\x20\x0d\x0a\x87\x0a':
+            return '.jp2'
+        
+        # WebP: RIFF....WEBP
+        if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+            return '.webp'
+        
+        # BMP: BM
+        if data[:2] == b'BM':
+            return '.bmp'
+        
+        return None
