@@ -1,0 +1,72 @@
+{
+  "image_size_limit_mb": {
+    "description": "图像大小限制 (MB)",
+    "type": "int",
+    "default": 10,
+    "min": 1,
+    "max": 50,
+    "hint": "允许处理的普通图像文件最大大小，单位MB"
+  },
+  "gif_size_limit_mb": {
+    "description": "GIF大小限制 (MB)",
+    "type": "int",
+    "default": 15,
+    "min": 1,
+    "max": 100,
+    "hint": "允许处理的GIF动画文件最大大小，单位MB"
+  },
+  "processing_timeout": {
+    "description": "处理超时时间 (秒)",
+    "type": "int",
+    "default": 30,
+    "min": 5,
+    "max": 120,
+    "hint": "图像处理的最大超时时间"
+  },
+  "output_quality": {
+    "description": "输出图像质量",
+    "type": "int",
+    "default": 85,
+    "min": 1,
+    "max": 100,
+    "hint": "输出JPEG图像的质量 (1-100)，仅对JPG格式有效"
+  },
+  "enable_gif": {
+    "description": "启用GIF处理",
+    "type": "bool",
+    "default": true,
+    "hint": "是否启用GIF动画处理功能"
+  },
+  "enable_compression": {
+    "description": "启用自动压缩",
+    "type": "bool",
+    "default": true,
+    "hint": "是否自动压缩处理后的图像以减小文件大小"
+  },
+  "silent_mode": {
+    "description": "静默模式",
+    "type": "bool",
+    "default": true,
+    "hint": "是否启用静默模式（不发送处理提示消息）"
+  },
+  "enable_auto_cleanup": {
+    "description": "启用自动清理",
+    "type": "bool",
+    "default": true,
+    "hint": "发送成功后自动删除生成的文件"
+  },
+  "keep_files_hours": {
+    "description": "文件保留时间 (小时)",
+    "type": "int",
+    "default": 1,
+    "min": 0,
+    "max": 24,
+    "hint": "生成的文件保留多少小时后自动删除 (0=立即删除)"
+  },
+  "enable_at_avatar": {
+    "description": "启用@用户头像功能",
+    "type": "bool",
+    "default": true,
+    "hint": "是否允许通过@用户获取其头像进行处理"
+  }
+}
