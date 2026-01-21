@@ -1,6 +1,7 @@
 """
 头像服务
 """
+
 import aiohttp
 from typing import Optional
 from astrbot.api import logger
@@ -8,18 +9,18 @@ from astrbot.api import logger
 
 class AvatarService:
     """头像服务类"""
-    
+
     def __init__(self, network_utils):
         self.network_utils = network_utils
-    
+
     async def get_avatar(self, qq_number: str, size: int = 640) -> Optional[bytes]:
         """
         获取QQ用户头像
-        
+
         Args:
             qq_number: QQ号码
             size: 头像尺寸
-            
+
         Returns:
             头像图片字节数据
         """
@@ -27,9 +28,9 @@ class AvatarService:
         urls = [
             f"http://q1.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
             f"http://q2.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
-            f"http://q4.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}"
+            f"http://q4.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
         ]
-        
+
         for url in urls:
             try:
                 avatar_data = await self._download_avatar(url)
@@ -39,10 +40,10 @@ class AvatarService:
             except Exception as e:
                 logger.debug(f"头像API失败 {url}: {e}")
                 continue
-        
+
         logger.error(f"所有头像API都失败: {qq_number}")
         return None
-    
+
     async def _download_avatar(self, url: str) -> Optional[bytes]:
         """下载头像"""
         try:

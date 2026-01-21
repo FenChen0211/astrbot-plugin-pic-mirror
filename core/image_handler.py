@@ -1,6 +1,7 @@
 """
 图像处理主逻辑
 """
+
 import asyncio
 from pathlib import Path
 from typing import List
@@ -17,32 +18,32 @@ from ..image_processor import MirrorProcessor
 
 class ImageHandler:
     """图像处理器"""
-    
+
     def __init__(self, config_service):
         self.config_service = config_service
         self.config = config_service.config_obj
-        
+
         # 初始化组件
         self.network_utils = NetworkUtils(timeout=self.config.processing_timeout)
         self.message_utils = MessageUtils()
         self.file_utils = FileUtils()
         self.avatar_service = AvatarService(self.network_utils)
         self.cleanup_manager = CleanupManager(self.config)
-        
+
         # 数据目录
         self.data_dir = self.file_utils.ensure_data_dir("astrbot-plugin-pic-mirror")
-    
+
     async def process_mirror(self, event, mode: str):
         """
         处理图像对称请求
-        
+
         Args:
             event: 消息事件
             mode: 对称模式
         """
         try:
             logger.info(f"开始处理图像对称请求，模式: {mode}")
-            
+
             # 1. 尝试获取@的用户头像
             if self.config.enable_at_avatar:
                 at_qq = self.message_utils.extract_at_qq(event)
@@ -50,186 +51,201 @@ class ImageHandler:
                     async for result in self._process_avatar(event, at_qq, mode):
                         yield result
                     return
-            
+
             # 2. 提取图像源
             image_sources = self.message_utils.extract_image_sources(event)
             logger.info(f"找到的图像源: {len(image_sources)}个")
-            
+
             if not image_sources:
                 yield self._get_error_message(event, "未找到图像")
                 return
-            
+
             # 3. 发送处理中提示（非静默模式）
             if not self.config.silent_mode:
                 processing_msg = MirrorProcessor.get_mode_description(mode)
                 yield event.plain_result(f"🔄 正在处理图像: {processing_msg}...")
-            
+
             # 4. 处理图像源
             processed = False
-            
+
             for image_source in image_sources:
                 try:
                     input_path = await self._prepare_image_file(image_source)
                     if not input_path:
                         continue
-                    
-                    async for result in self._process_single_image(event, input_path, mode, str(image_source)):
+
+                    async for result in self._process_single_image(
+                        event, input_path, mode, str(image_source)
+                    ):
                         yield result
                         processed = True
                         break
-                        
+
                 except Exception as e:
-                    logger.error(f"处理图像源失败 {image_source}: {str(e)}", exc_info=True)
+                    logger.error(
+                        f"处理图像源失败 {image_source}: {str(e)}", exc_info=True
+                    )
                     continue
-            
+
             if not processed:
                 yield self._get_error_message(event, "处理失败")
-                
+
         except Exception as e:
             logger.error(f"处理指令异常: {str(e)}", exc_info=True)
             yield self._get_error_message(event, "处理失败")
-    
+
     async def _process_avatar(self, event, qq_number: str, mode: str):
         """处理用户头像"""
         logger.info(f"处理用户头像: {qq_number}")
-        
+
         avatar_data = await self.avatar_service.get_avatar(qq_number)
         if not avatar_data:
             yield self._get_error_message(event, "获取头像失败")
             return
-        
+
         # 保存头像临时文件
-        input_path = await self._save_temp_file(avatar_data, f"avatar_{qq_number}", ".jpg")
+        input_path = await self._save_temp_file(
+            avatar_data, f"avatar_{qq_number}", ".jpg"
+        )
         if not input_path:
             yield self._get_error_message(event, "保存头像失败")
             return
-        
+
         # 处理头像
-        async for result in self._process_single_image(event, input_path, mode, f"qq_{qq_number}"):
+        async for result in self._process_single_image(
+            event, input_path, mode, f"qq_{qq_number}"
+        ):
             yield result
-    
-    async def _process_single_image(self, event, input_path: Path, mode: str, source_info: str):
+
+    async def _process_single_image(
+        self, event, input_path: Path, mode: str, source_info: str
+    ):
         """处理单个图像"""
         try:
             # 生成输出文件
             output_filename = self.file_utils.generate_filename(source_info, mode)
             output_path = self.data_dir / output_filename
-            
+
             logger.info(f"处理图像: {input_path} -> {output_path}")
-            
+
             # 处理图像
             success, message = await MirrorProcessor.process_image(
-                str(input_path), 
-                str(output_path), 
-                mode, 
+                str(input_path),
+                str(output_path),
+                mode,
                 "astrbot-plugin-pic-mirror",
-                self.config
+                self.config,
             )
-            
+
             # 清理输入文件
             self._cleanup_input_file(input_path)
-            
+
             if success:
                 # 发送结果
                 yield self._get_result_message(event, output_path, mode)
-                
+
                 # 安排清理
                 if self.config.enable_auto_cleanup:
-                    self.cleanup_manager.schedule_cleanup(output_path, self.config.keep_files_hours)
-                
+                    self.cleanup_manager.schedule_cleanup(
+                        output_path, self.config.keep_files_hours
+                    )
+
             else:
                 logger.warning(f"图像处理失败: {message}")
                 yield self._get_error_message(event, "处理失败")
-                
+
         except Exception as e:
             logger.error(f"处理单图像失败: {str(e)}", exc_info=True)
             yield self._get_error_message(event, "处理失败")
-    
+
     async def _prepare_image_file(self, image_source: str) -> Path:
         """准备图像文件"""
         # 如果是URL，下载
-        if image_source.startswith(('http://', 'https://')):
+        if image_source.startswith(("http://", "https://")):
             return await self._download_image(image_source)
-        
+
         # 如果是base64，解码
-        elif image_source.startswith('base64://'):
+        elif image_source.startswith("base64://"):
             return await self._decode_base64_image(image_source)
-        
+
         # 本地文件
         else:
             return self._get_local_file(image_source)
-    
+
     async def _download_image(self, url: str) -> Path:
         """下载图像"""
         logger.info(f"下载网络图片: {url}")
-        
+
         image_data = await self.network_utils.download_image(url)
         if not image_data:
             return None
-        
-        ext = self.file_utils.get_file_extension(url) or '.jpg'
+
+        ext = self.file_utils.get_file_extension(url) or ".jpg"
         return await self._save_temp_file(image_data, "downloaded", ext)
-    
+
     async def _decode_base64_image(self, base64_data: str) -> Path:
         """解码base64图像"""
         try:
             if base64_data.startswith("base64://"):
-                base64_data = base64_data[len("base64://"):]
-            
+                base64_data = base64_data[len("base64://") :]
+
             import base64 as b64
+
             image_data = b64.b64decode(base64_data)
-            
+
             return await self._save_temp_file(image_data, "base64", ".png")
         except Exception as e:
             logger.error(f"base64解码失败: {e}")
             return None
-    
+
     def _get_local_file(self, file_path: str) -> Path:
         """获取本地文件"""
         path = Path(file_path)
         if path.exists():
             return path
-        
+
         # 尝试相对路径
         possible_path = self.data_dir / file_path
         if possible_path.exists():
             return possible_path
-        
+
         return None
-    
+
     async def _save_temp_file(self, data: bytes, prefix: str, extension: str) -> Path:
         """保存临时文件"""
         try:
             import tempfile
+
             with tempfile.NamedTemporaryFile(
-                prefix=prefix, 
-                suffix=extension, 
-                delete=False, 
-                dir=str(self.data_dir)
+                prefix=prefix, suffix=extension, delete=False, dir=str(self.data_dir)
             ) as tmp:
                 tmp.write(data)
                 return Path(tmp.name)
         except Exception as e:
             logger.error(f"保存临时文件失败: {e}")
             return None
-    
+
     def _cleanup_input_file(self, file_path: Path):
         """清理输入文件"""
         if not file_path or not file_path.exists():
             return
-        
+
         try:
             # 清理临时文件
-            if "tmp" in str(file_path) or "avatar_" in str(file_path) or "downloaded" in str(file_path):
+            if (
+                "tmp" in str(file_path)
+                or "avatar_" in str(file_path)
+                or "downloaded" in str(file_path)
+            ):
                 file_path.unlink()
                 logger.info(f"清理临时输入文件: {file_path.name}")
         except Exception as e:
             logger.warning(f"清理输入文件失败: {e}")
-    
+
     def _get_result_message(self, event, output_path: Path, mode: str):
         """
         获取结果消息
-        
+
         Args:
             event: 消息事件对象
             output_path: 输出文件路径
@@ -239,15 +255,17 @@ class ImageHandler:
             return event.chain_result([Comp.Image(file=str(output_path))])
         else:
             description = MirrorProcessor.get_mode_description(mode)
-            return event.chain_result([
-                Comp.Plain(text=f"✅ {description}\n"),
-                Comp.Image(file=str(output_path))
-            ])
-    
+            return event.chain_result(
+                [
+                    Comp.Plain(text=f"✅ {description}\n"),
+                    Comp.Image(file=str(output_path)),
+                ]
+            )
+
     def _get_error_message(self, event, message: str):
         """
         获取错误消息
-        
+
         Args:
             event: 消息事件对象
             message: 错误消息
@@ -256,7 +274,7 @@ class ImageHandler:
             return event.plain_result(f"❌ {message}")
         else:
             return event.plain_result(f"❌ {message}")
-    
+
     async def cleanup(self):
         """清理资源"""
         await self.cleanup_manager.cleanup_all()
