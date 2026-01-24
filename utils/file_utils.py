@@ -8,6 +8,7 @@ import hashlib
 import base64
 from pathlib import Path
 from typing import Optional, Tuple, List, TYPE_CHECKING
+from astrbot.api import logger
 
 if TYPE_CHECKING:
     from config import PluginConfig
@@ -164,8 +165,10 @@ class FileUtils:
         try:
             if base64_data.startswith("base64://"):
                 base64_data = base64_data[len("base64://") :]
-            return base64.b64decode(base64_data)
+            # 添加validate=True进行严格的Base64验证
+            return base64.b64decode(base64_data, validate=True)
         except Exception as e:
+            logger.error(f"Base64解码失败: {e}")
             return None
 
     @staticmethod

@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Tuple, Optional
 from PIL import Image, ImageSequence
 
+# 修复PIL解压炸弹风险 - 设置像素上限
+Image.MAX_IMAGE_PIXELS = 178956970  # 约1.69亿像素限制
+
 # 修复：使用和旧版相同的智能导入方式
 try:
     from utils.file_utils import FileUtils
@@ -19,6 +22,23 @@ except ImportError:
 
 class MirrorProcessor:
     """图像对称处理器"""
+
+    @staticmethod
+    def _check_image_size(img: Image.Image) -> bool:
+        """
+        检查图像尺寸是否安全（防止解压炸弹）
+        
+        Args:
+            img: PIL图像对象
+            
+        Returns:
+            bool: 图像尺寸是否在安全范围内
+        """
+        max_pixels = 10000 * 10000  # 1亿像素限制
+        actual_pixels = img.width * img.height
+        if actual_pixels > max_pixels:
+            return False
+        return True
 
     @staticmethod
     async def process_image(
@@ -89,6 +109,10 @@ class MirrorProcessor:
         """
         try:
             with Image.open(input_path) as img:
+                # 检查图像尺寸安全性（防止解压炸弹）
+                if not MirrorProcessor._check_image_size(img):
+                    return False, f"图像尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
+                
                 # 转换模式（确保透明度处理正确）
                 if img.mode == "P":
                     img = img.convert("RGBA")
@@ -188,6 +212,10 @@ class MirrorProcessor:
             durations = []
 
             with Image.open(input_path) as img:
+                # 检查GIF整体尺寸安全性
+                if not MirrorProcessor._check_image_size(img):
+                    return False, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
+                
                 for frame in ImageSequence.Iterator(img):
                     # 记录每帧持续时间
                     durations.append(frame.info.get("duration", 100))

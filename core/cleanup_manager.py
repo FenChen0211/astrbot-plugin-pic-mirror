@@ -14,12 +14,13 @@ class CleanupManager:
     def __init__(self, config):
         self.config = config
         self.cleanup_queue: List[Dict[str, Any]] = []
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task] = None  # 不立即创建
         self._stop_event = asyncio.Event()
         self._queue_lock = asyncio.Lock()  # ✅ 添加锁
 
-        if config.enable_auto_cleanup:
-            # 修复：避免命名冲突，使用不同的方法名
+    async def start(self):
+        """手动启动清理任务"""
+        if self.config.enable_auto_cleanup and not self._cleanup_task:
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
     async def _cleanup_loop(self):
