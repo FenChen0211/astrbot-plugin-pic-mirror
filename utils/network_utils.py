@@ -13,15 +13,15 @@ class NetworkUtils:
 
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
-        self.session = None  # 添加session缓存
-        # URL白名单 - 只允许特定的域名
-        self.allowed_domains = [
-            'q1.qlogo.cn',
-            'q2.qlogo.cn', 
-            'q4.qlogo.cn',
-            'q.qlogo.cn',
-            # 可以根据需要添加其他允许的域名
-        ]
+        self.session = None
+        # 危险域名/IP黑名单
+        self.dangerous_hosts = {
+            'localhost', '127.0.0.1', '0.0.0.0', '::1',
+            '169.254.169.254',  # 云元数据
+            'metadata.google.internal',
+            'metadata.tencentyun.com',
+            '100.100.100.200',  # 阿里云
+        }
         # 下载大小限制 (10MB)
         self.max_download_size = 10 * 1024 * 1024
     
@@ -32,41 +32,39 @@ class NetworkUtils:
         return self.session
 
     def _is_safe_url(self, url: str) -> bool:
-        """
-        检查URL是否安全（防止SSRF攻击）
-        
-        Args:
-            url: 要检查的URL
-            
-        Returns:
-            bool: URL是否安全
-        """
+        """安全检查：只拦截危险地址，允许公网图片"""
         try:
             from urllib.parse import urlparse
-            
             parsed = urlparse(url)
             
             # 检查协议
-            if parsed.scheme not in ['https', 'http']:
-                logger.warning(f"不支持的协议: {parsed.scheme}")
+            if parsed.scheme not in ('http', 'https'):
                 return False
             
-            # 检查域名是否在白名单中
-            if parsed.netloc not in self.allowed_domains:
-                logger.warning(f"域名不在白名单中: {parsed.netloc}")
+            # 检查主机
+            hostname = parsed.hostname
+            if not hostname:
                 return False
             
-            # 检查是否为内网地址
-            hostname = parsed.netloc.split(':')[0]  # 移除端口
-            if hostname in ['localhost', '127.0.0.1'] or hostname.startswith('192.168.') or hostname.startswith('10.') or hostname.startswith('172.'):
-                logger.warning(f"检测到内网地址: {hostname}")
+            # 检查黑名单
+            if hostname in self.dangerous_hosts:
                 return False
             
+            # 检查是否为内网IP
+            import ipaddress
+            try:
+                ip = ipaddress.ip_address(hostname)
+                if ip.is_private or ip.is_loopback:
+                    return False
+            except ValueError:
+                pass  # 不是IP地址，是域名
+            
+            # ✅ 允许所有公网域名和IP
             return True
             
         except Exception as e:
-            logger.error(f"URL安全检查失败: {e}")
-            return False
+            logger.warning(f"URL安全检查失败 {url}: {e}")
+            return False  # 有疑问就拒绝
     
     async def cleanup(self):
         """清理资源，关闭会话"""

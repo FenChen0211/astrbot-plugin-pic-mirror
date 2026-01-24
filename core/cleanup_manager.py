@@ -11,8 +11,9 @@ from astrbot.api.star import StarTools
 class CleanupManager:
     """清理管理器"""
 
-    def __init__(self, config):
+    def __init__(self, config, plugin_name: str = None):
         self.config = config
+        self.plugin_name = plugin_name or "astrbot-plugin-pic-mirror"  # 默认值
         self.cleanup_queue: List[Dict[str, Any]] = []
         self._cleanup_task: Optional[asyncio.Task] = None  # 不立即创建
         self._stop_event = asyncio.Event()
@@ -69,13 +70,15 @@ class CleanupManager:
     def schedule_cleanup(self, file_path: Path, keep_hours: int):
         """安排文件清理 - 安全版本"""
         # 验证路径是否在插件数据目录内
-        try:
-            plugin_data_dir = StarTools.get_data_dir("astrbot-plugin-pic-mirror")
-            if not str(file_path.resolve()).startswith(str(plugin_data_dir.resolve())):
-                logger.error(f"拒绝清理外部路径: {file_path}")
-                return
-        except:
-            pass
+        if self.plugin_name:
+            try:
+                plugin_data_dir = StarTools.get_data_dir(self.plugin_name)
+                if not str(file_path.resolve()).startswith(str(plugin_data_dir.resolve())):
+                    logger.error(f"拒绝清理外部路径: {file_path}")
+                    return
+            except Exception as e:
+                logger.warning(f"无法验证插件数据目录: {e}")
+                pass
             
         if keep_hours <= 0:
             asyncio.create_task(self._cleanup_immediately(file_path))

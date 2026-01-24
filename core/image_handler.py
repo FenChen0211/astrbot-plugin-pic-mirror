@@ -29,10 +29,9 @@ except ImportError:
 class ImageHandler:
     """图像处理器"""
     
-    # 插件名称常量，避免硬编码
-    PLUGIN_NAME = "astrbot-plugin-pic-mirror"
-
-    def __init__(self, config_service):
+    def __init__(self, config_service, plugin_name: str = None):
+        self.PLUGIN_NAME = plugin_name or "astrbot-plugin-pic-mirror"
+        
         self.config_service = config_service
         self.config = config_service.config  # ✅ 直接使用
 
@@ -41,7 +40,8 @@ class ImageHandler:
         self.message_utils = MessageUtils()
         self.file_utils = FileUtils()
         self.avatar_service = AvatarService(self.network_utils)
-        self.cleanup_manager = CleanupManager(self.config)
+        # 传递插件名给CleanupManager
+        self.cleanup_manager = CleanupManager(self.config, self.PLUGIN_NAME)
 
         # 数据目录
         self.data_dir = StarTools.get_data_dir(self.PLUGIN_NAME)
@@ -147,7 +147,7 @@ class ImageHandler:
                 str(input_path),
                 str(output_path),
                 mode,
-                "astrbot-plugin-pic-mirror",
+                self.PLUGIN_NAME,
                 self.config,
             )
 
