@@ -27,7 +27,7 @@ class NetworkUtils:
         self.session = None
         self.config = config
         
-        # 危险域名/IP黑名单
+        # 危险域名/IP黑名单 - 统一使用DANGEROUS_PATTERNS类常量
         self.dangerous_hosts = {
             'localhost', '127.0.0.1', '0.0.0.0', '::1',
             '169.254.169.254',  # 云元数据
