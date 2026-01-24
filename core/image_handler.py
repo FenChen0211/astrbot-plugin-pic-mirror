@@ -198,7 +198,7 @@ class ImageHandler:
         return await self._save_temp_file(image_data, "downloaded", ext)
 
     async def _decode_base64_image(self, base64_data: str) -> Optional[Path]:
-        """解码base64图像 - 安全版本"""
+        """解码base64图像 - 安全版本，使用线程池避免阻塞"""
         try:
             # 移除base64前缀
             if base64_data.startswith("base64://"):
@@ -210,10 +210,14 @@ class ImageHandler:
                 logger.error(f"Base64数据过长: {len(base64_data)}字符")
                 return None
                 
-            import base64 as b64
+            # 将解码操作放入线程池避免阻塞
+            loop = asyncio.get_running_loop()
             
-            # 2. 解码
-            image_data = b64.b64decode(base64_data)
+            def decode_in_thread():
+                import base64 as b64
+                return b64.b64decode(base64_data, validate=True)
+            
+            image_data = await loop.run_in_executor(None, decode_in_thread)
             
             # 3. 检查解码后大小
             max_size = self.config.max_image_size_bytes if self.config else 10 * 1024 * 1024

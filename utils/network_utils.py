@@ -32,7 +32,7 @@ class NetworkUtils:
         return self.session
 
     def _is_safe_url(self, url: str) -> bool:
-        """安全检查：只拦截危险地址，允许公网图片"""
+        """安全检查：只拦截危险地址，允许公网图片 - 修复SSRF漏洞"""
         try:
             from urllib.parse import urlparse
             parsed = urlparse(url)
@@ -57,7 +57,21 @@ class NetworkUtils:
                 if ip.is_private or ip.is_loopback:
                     return False
             except ValueError:
-                pass  # 不是IP地址，是域名
+                # 不是IP地址，是域名 - 检查危险域名模式
+                dangerous_patterns = [
+                    'localhost', '127.0.0.1', '0.0.0.0', '::1',
+                    '169.254.', 'metadata.',
+                    '.internal', '.local', '.localdomain',
+                ]
+                
+                # 检查精确匹配或后缀匹配
+                for pattern in dangerous_patterns:
+                    if hostname == pattern or hostname.endswith('.' + pattern):
+                        return False
+                
+                # 检查常见的内网域名模式
+                if any(hostname.startswith(prefix) for prefix in ['192.168.', '10.', '172.16.']):
+                    return False
             
             # ✅ 允许所有公网域名和IP
             return True

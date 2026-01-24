@@ -71,14 +71,27 @@ class ConfigService:
 @用户 并发送: 右对称
 图片 + 右对称"""
         else:
-            return f"""📷 图像对称插件使用说明 v1.2.0
+            # 从metadata.yaml读取版本号
+            try:
+                import yaml
+                metadata_path = Path(__file__).parent.parent / 'metadata.yaml'
+                if metadata_path.exists():
+                    with open(metadata_path, 'r', encoding='utf-8') as f:
+                        metadata = yaml.safe_load(f)
+                        version = metadata.get('version', '1.2.0')
+                else:
+                    version = '1.2.0'
+            except Exception:
+                version = '1.2.0'
+            
+            return f"""📷 图像对称插件使用说明 v{version}
 
 当前配置:
 • 图像大小限制: {config.image_size_limit_mb}MB
 • GIF大小限制: {config.gif_size_limit_mb}MB
 • GIF处理: {"✅ 已启用" if config.enable_gif else "❌ 已禁用"}
 • 自动清理: {"✅ 已启用" if config.enable_auto_cleanup else "❌ 已禁用"}
-• @头像功能: {"✅ 已启用" if config.enable_at_avatar else "❌ 已禁用"}
+• @头像功能: {"✅ 已启用" if config.enable_at_avatar else ""}
 
 可用指令:
 • 左对称 / mirror left - 左半边对称到右边

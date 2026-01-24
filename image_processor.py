@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import Tuple, Optional
 from PIL import Image, ImageSequence
 
-# 修复PIL解压炸弹风险 - 设置像素上限
-Image.MAX_IMAGE_PIXELS = 178956970  # 约1.69亿像素限制
+# 注意：PIL全局设置已移除，避免影响其他插件
 
 # 修复：使用和旧版相同的智能导入方式
 try:
@@ -26,7 +25,7 @@ class MirrorProcessor:
     @staticmethod
     def _check_image_size(img: Image.Image) -> bool:
         """
-        检查图像尺寸是否安全（防止解压炸弹）
+        检查图像尺寸是否安全（防止解压炸弹）- 改进版本
         
         Args:
             img: PIL图像对象
@@ -34,11 +33,16 @@ class MirrorProcessor:
         Returns:
             bool: 图像尺寸是否在安全范围内
         """
-        max_pixels = 10000 * 10000  # 1亿像素限制
-        actual_pixels = img.width * img.height
-        if actual_pixels > max_pixels:
+        pixels = img.width * img.height
+        
+        # 设置多个阈值
+        if pixels > 10000 * 10000:  # 1亿像素 - 硬限制
             return False
-        return True
+        elif pixels > 5000 * 5000:   # 2500万像素 - 警告
+            logger.warning(f"处理大图像: {pixels}像素")
+            return True  # 允许但记录
+        else:
+            return True
 
     @staticmethod
     async def process_image(
