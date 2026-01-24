@@ -4,74 +4,57 @@
 
 from typing import Dict, Any
 from astrbot.api import logger
-from ..config import PluginConfig
+
+# 修复：使用和 image_processor.py 相同的智能导入
+try:
+    from config import PluginConfig  # 先尝试绝对导入
+except ImportError:
+    from ..config import PluginConfig  # 失败再尝试相对导入
 
 
 class ConfigService:
     """配置服务类"""
 
-    def __init__(self, plugin_instance):
+    def __init__(self, plugin_instance, config_dict=None):
         self.plugin = plugin_instance
-        self.config = self._load_config()
+        self._config = None  # 延迟加载
+        # 保存可能传入的配置字典，但_load_config会优先使用
+        self._config_dict = config_dict
 
     def _load_config(self) -> PluginConfig:
-        """加载插件配置"""
+        """加载插件配置 - 使用旧版逻辑"""
         try:
-            # 尝试获取配置，如果失败则使用默认值
-            config_dict = {}
-
-            # 方法优先级：get_plugin_config > get_config > .config > context.config
-            methods_to_try = [
-                ("get_plugin_config", "调用 get_plugin_config() 方法"),
-                ("get_config", "调用 get_config() 方法"),
-                ("config", "访问 .config 属性"),
-            ]
-
-            for method_name, description in methods_to_try:
-                if hasattr(self.plugin, method_name):
-                    try:
-                        attr = getattr(self.plugin, method_name)
-                        if callable(attr):
-                            config_dict = attr()  # 调用方法
-                        else:
-                            config_dict = attr  # 访问属性
-
-                        logger.info(f"{description} 成功")
-                        break
-                    except Exception as e:
-                        logger.debug(f"{description} 失败: {e}")
-                        continue
-
-            # 如果上述方法都失败，尝试从context获取
-            if not config_dict and hasattr(self.plugin, "context"):
+            # 方法1：首先尝试通过 get_plugin_config 获取
+            if hasattr(self.plugin, 'get_plugin_config'):
                 try:
-                    context = self.plugin.context
-                    if hasattr(context, "config"):
-                        config_dict = context.config
-                        logger.info("从 context.config 获取配置成功")
+                    config_dict = self.plugin.get_plugin_config()
+                    logger.info("通过 get_plugin_config() 获取配置")
+                    return PluginConfig.load_from_dict(config_dict)
                 except Exception as e:
-                    logger.debug(f"从context获取配置失败: {e}")
-
-            # 如果还是没有配置，使用空字典（将使用默认值）
-            if not config_dict:
-                logger.info("使用空配置字典，将应用默认值")
-                config_dict = {}
-
-            logger.info(f"配置字典内容: {config_dict}")
-
-            # 加载配置
-            config = PluginConfig.load_from_dict(config_dict)
-            logger.info("插件配置加载成功")
-            return config
-
+                    logger.debug(f"get_plugin_config 失败: {e}")
+            
+            # 方法2：尝试从 context 获取
+            if hasattr(self.plugin, 'context') and hasattr(self.plugin.context, 'config'):
+                try:
+                    config_dict = self.plugin.context.config
+                    logger.info("通过 context.config 获取配置")
+                    return PluginConfig.load_from_dict(config_dict)
+                except Exception as e:
+                    logger.debug(f"context.config 失败: {e}")
+            
+            # 方法3：使用空配置（默认值）
+            logger.info("使用默认配置")
+            return PluginConfig()
+                
         except Exception as e:
             logger.error(f"配置加载失败，使用默认配置: {e}")
-            # 返回默认配置，确保插件能正常运行
             return PluginConfig()
 
     def get_config_summary(self) -> str:
         """获取配置摘要"""
-        config = self.config
+        # 确保配置已加载
+        config = self.config_obj  # 使用config_obj属性确保加载
+        
         return (
             f"图像限制={config.image_size_limit_mb}MB, "
             f"GIF限制={config.gif_size_limit_mb}MB, "
@@ -104,7 +87,7 @@ class ConfigService:
 @用户 并发送: 右对称
 图片 + 右对称"""
         else:
-            return f"""📷 图像对称插件使用说明 v1.2.0
+            return f"""📷 图像对称插件使用说明 v1.1.0
 
 当前配置:
 • 图像大小限制: {config.image_size_limit_mb}MB
@@ -137,4 +120,11 @@ GitHub: https://github.com/FenChen0211/astrbot-plugin-pic-mirror"""
     @property
     def config_obj(self) -> PluginConfig:
         """获取配置对象"""
-        return self.config
+        if self._config is None:
+            self._config = self._load_config()
+        return self._config
+    
+    @property 
+    def config(self):
+        """配置对象别名"""
+        return self.config_obj

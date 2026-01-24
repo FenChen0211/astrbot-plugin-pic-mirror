@@ -24,9 +24,6 @@ class NetworkUtils:
         Returns:
             图片字节数据，失败返回None
         """
-        # QQ图片需要将https替换为http
-        url = url.replace("https://", "http://")
-
         try:
             async with aiohttp.ClientSession() as client:
                 async with client.get(url, timeout=self.timeout) as response:
@@ -56,12 +53,17 @@ class NetworkUtils:
         Returns:
             头像图片字节数据，失败返回None
         """
-        # QQ头像API列表（多个备用地址）
+        # QQ头像API列表（多个备用地址，优先使用HTTPS）
         avatar_urls = [
+            f"https://q1.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
+            f"https://q2.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
+            f"https://q4.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
+            f"https://q.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
+            # 仅在HTTPS失败时的HTTP回退（针对特定的兼容性问题）
             f"http://q1.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
             f"http://q2.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
             f"http://q4.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
-            f"https://q.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
+            f"http://q.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
         ]
 
         for url in avatar_urls:

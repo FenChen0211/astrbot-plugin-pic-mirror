@@ -1,6 +1,5 @@
 """
 图像对称处理模块
-实现各种对称变换算法
 """
 
 import asyncio
@@ -9,6 +8,7 @@ from pathlib import Path
 from typing import Tuple, Optional
 from PIL import Image, ImageSequence
 
+# 修复：使用和旧版相同的智能导入方式
 try:
     from utils.file_utils import FileUtils
     from config import PluginConfig
@@ -68,7 +68,7 @@ class MirrorProcessor:
                 )
             # 处理静态图像
             elif ext in FileUtils.SUPPORTED_STATIC_FORMATS:
-                return MirrorProcessor._process_static_image(
+                return await MirrorProcessor._process_static_image(
                     input_path, output_path, mode, config
                 )
             else:
@@ -78,7 +78,7 @@ class MirrorProcessor:
             return False, f"图像处理失败: {str(e)}"
 
     @staticmethod
-    def _process_static_image(
+    async def _process_static_image(
         input_path: str,
         output_path: str,
         mode: str,
@@ -96,23 +96,38 @@ class MirrorProcessor:
                     img = img.convert("RGBA")
 
                 # 应用对称变换
-                mirrored = MirrorProcessor._apply_mirror(img, mode)
+                loop = asyncio.get_running_loop()
+                mirrored = await loop.run_in_executor(
+                    None,
+                    MirrorProcessor._apply_mirror,
+                    img,
+                    mode
+                )
 
                 # 应用压缩（如果启用）
                 if config and config.enable_compression:
-                    mirrored = MirrorProcessor._compress_image(mirrored, config)
+                    mirrored = await loop.run_in_executor(
+                        None,
+                        MirrorProcessor._compress_image,
+                        mirrored,
+                        config
+                    )
 
                 # 保存图像（使用配置的质量设置）
                 quality = config.output_quality if config else 85
-
-                if input_path.lower().endswith(".png"):
-                    mirrored.save(output_path, optimize=True)
-                elif input_path.lower().endswith(".webp"):
-                    mirrored.save(
-                        output_path, quality=quality, method=6
-                    )  # method=6为默认平衡模式
-                else:
-                    mirrored.save(output_path, quality=quality, optimize=True)
+                
+                # 将保存操作放到线程池中执行
+                def save_image():
+                    if input_path.lower().endswith(".png"):
+                        mirrored.save(output_path, optimize=True)
+                    elif input_path.lower().endswith(".webp"):
+                        mirrored.save(
+                            output_path, quality=quality, method=6
+                        )  # method=6为默认平衡模式
+                    else:
+                        mirrored.save(output_path, quality=quality, optimize=True)
+                
+                await loop.run_in_executor(None, save_image)
 
                 return True, "图像处理成功"
         except Exception as e:
@@ -168,6 +183,7 @@ class MirrorProcessor:
         """
         try:
             # 读取GIF
+            loop = asyncio.get_running_loop()
             frames = []
             durations = []
 
@@ -182,26 +198,39 @@ class MirrorProcessor:
                     elif frame.mode == "LA":
                         frame = frame.convert("RGBA")
 
-                    mirrored_frame = MirrorProcessor._apply_mirror(frame, mode)
+                    # 将CPU密集型的图像处理操作放到线程池中执行
+                    mirrored_frame = await loop.run_in_executor(
+                        None,
+                        MirrorProcessor._apply_mirror,
+                        frame,
+                        mode
+                    )
 
                     # 应用压缩（如果启用）
                     if config and config.enable_compression:
-                        mirrored_frame = MirrorProcessor._compress_image(
-                            mirrored_frame, config
+                        mirrored_frame = await loop.run_in_executor(
+                            None,
+                            MirrorProcessor._compress_image,
+                            mirrored_frame,
+                            config
                         )
 
                     frames.append(mirrored_frame)
 
             # 保存GIF
             if len(frames) > 0:
-                frames[0].save(
-                    output_path,
-                    save_all=True,
-                    append_images=frames[1:],
-                    duration=durations,
-                    loop=0,
-                    optimize=True,
-                )
+                # 将保存操作放到线程池中执行
+                def save_gif():
+                    frames[0].save(
+                        output_path,
+                        save_all=True,
+                        append_images=frames[1:],
+                        duration=durations,
+                        loop=0,
+                        optimize=True,
+                    )
+                
+                await loop.run_in_executor(None, save_gif)
                 return True, "GIF处理成功"
             else:
                 return False, "GIF没有帧数据"

@@ -6,14 +6,24 @@ import asyncio
 from pathlib import Path
 from typing import List
 from astrbot.api import logger
+from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
 
-from ..utils.network_utils import NetworkUtils
-from ..utils.message_utils import MessageUtils
-from ..utils.file_utils import FileUtils
-from ..core.avatar_service import AvatarService
-from ..core.cleanup_manager import CleanupManager
-from ..image_processor import MirrorProcessor
+# 保持旧版导入方式
+try:
+    from utils.network_utils import NetworkUtils
+    from utils.message_utils import MessageUtils
+    from utils.file_utils import FileUtils
+    from core.avatar_service import AvatarService
+    from core.cleanup_manager import CleanupManager
+    from image_processor import MirrorProcessor
+except ImportError:
+    from ..utils.network_utils import NetworkUtils
+    from ..utils.message_utils import MessageUtils
+    from ..utils.file_utils import FileUtils
+    from ..core.avatar_service import AvatarService
+    from ..core.cleanup_manager import CleanupManager
+    from ..image_processor import MirrorProcessor  # 正确：从上级目录导入
 
 
 class ImageHandler:
@@ -21,7 +31,15 @@ class ImageHandler:
 
     def __init__(self, config_service):
         self.config_service = config_service
-        self.config = config_service.config_obj
+        
+        # 确保配置已加载
+        if hasattr(config_service, 'config_obj'):
+            self.config = config_service.config_obj
+        elif hasattr(config_service, 'config'):
+            self.config = config_service.config
+        else:
+            # 如果都没有，手动触发加载
+            self.config = config_service.config_obj  # 这会触发@property加载
 
         # 初始化组件
         self.network_utils = NetworkUtils(timeout=self.config.processing_timeout)
@@ -31,7 +49,8 @@ class ImageHandler:
         self.cleanup_manager = CleanupManager(self.config)
 
         # 数据目录
-        self.data_dir = self.file_utils.ensure_data_dir("astrbot-plugin-pic-mirror")
+        self.data_dir = StarTools.get_data_dir("astrbot-plugin-pic-mirror")
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
     async def process_mirror(self, event, mode: str):
         """
@@ -277,4 +296,14 @@ class ImageHandler:
 
     async def cleanup(self):
         """清理资源"""
+        # 清理清理管理器（停止后台任务）
         await self.cleanup_manager.cleanup_all()
+        
+        # 关闭网络工具的连接池（如果有相关方法）
+        # 注意：NetworkUtils 当前没有显式的关闭方法，但如果有需要可以在这里添加
+        
+        # 清理其他资源
+        self.network_utils = None
+        self.message_utils = None
+        self.file_utils = None
+        self.avatar_service = None

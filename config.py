@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
+from astrbot.api import logger
 
 
 @dataclass
@@ -68,5 +69,7 @@ class PluginConfig:
             )
         except Exception as e:
             # 配置解析失败时使用默认值
-            print(f"配置解析失败，使用默认配置: {e}")
+            # 重要：使用框架的logger，而不是print
+            from astrbot.api import logger
+            logger.error(f"配置解析失败，使用默认配置: {e}")
             return cls()

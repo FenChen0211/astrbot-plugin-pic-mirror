@@ -2,7 +2,6 @@
 头像服务
 """
 
-import aiohttp
 from typing import Optional
 from astrbot.api import logger
 
@@ -24,34 +23,17 @@ class AvatarService:
         Returns:
             头像图片字节数据
         """
-        # 尝试多个QQ头像API
-        urls = [
-            f"http://q1.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
-            f"http://q2.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
-            f"http://q4.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
-        ]
-
-        for url in urls:
-            try:
-                avatar_data = await self._download_avatar(url)
-                if avatar_data:
-                    logger.info(f"成功获取头像: {qq_number}")
-                    return avatar_data
-            except Exception as e:
-                logger.debug(f"头像API失败 {url}: {e}")
-                continue
-
-        logger.error(f"所有头像API都失败: {qq_number}")
-        return None
-
-    async def _download_avatar(self, url: str) -> Optional[bytes]:
-        """下载头像"""
+        # 使用传入的 network_utils 来获取头像，避免重复实现
         try:
-            async with aiohttp.ClientSession() as client:
-                async with client.get(url, timeout=10) as response:
-                    if response.status == 200:
-                        return await response.read()
-                    return None
+            avatar_data = await self.network_utils.get_qq_avatar(qq_number, size)
+            if avatar_data:
+                logger.info(f"成功获取头像: {qq_number}")
+                return avatar_data
+            else:
+                logger.error(f"获取头像失败: {qq_number}")
+                return None
         except Exception as e:
-            logger.debug(f"下载头像失败 {url}: {e}")
+            logger.error(f"获取头像异常 {qq_number}: {e}")
             return None
+
+    

@@ -12,6 +12,8 @@ from typing import Optional, Tuple, List, TYPE_CHECKING
 if TYPE_CHECKING:
     from config import PluginConfig
 
+from astrbot.api.star import StarTools
+
 
 class FileUtils:
     """文件处理工具类"""
@@ -36,7 +38,7 @@ class FileUtils:
         Returns:
             Path: 数据目录路径
         """
-        data_dir = Path(f"data/plugins/{plugin_name}")
+        data_dir = StarTools.get_data_dir(plugin_name)
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir
 
