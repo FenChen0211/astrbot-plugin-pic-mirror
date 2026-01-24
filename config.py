@@ -55,17 +55,34 @@ class PluginConfig:
             return cls()
 
         try:
+            # 类型转换辅助函数
+            def safe_get(key: str, default, type_):
+                """安全获取并转换配置值"""
+                value = config_dict.get(key, default)
+                if value is None:
+                    return default
+                try:
+                    # bool 类型需要特殊处理
+                    if type_ == bool:
+                        if isinstance(value, str):
+                            return value.lower() in ("true", "1", "yes")
+                        return bool(value)
+                    return type_(value)
+                except (ValueError, TypeError):
+                    logger.warning(f"配置项 [{key}] 类型错误: {value} ({type_.__name__})，使用默认值: {default}")
+                    return default
+
             config = cls(
-                image_size_limit_mb=config_dict.get("image_size_limit_mb", 10),
-                gif_size_limit_mb=config_dict.get("gif_size_limit_mb", 15),
-                processing_timeout=config_dict.get("processing_timeout", 30),
-                output_quality=config_dict.get("output_quality", 85),
-                enable_gif=config_dict.get("enable_gif", True),
-                enable_compression=config_dict.get("enable_compression", True),
-                silent_mode=config_dict.get("silent_mode", True),
-                enable_auto_cleanup=config_dict.get("enable_auto_cleanup", True),
-                keep_files_hours=config_dict.get("keep_files_hours", 1),
-                enable_at_avatar=config_dict.get("enable_at_avatar", True),
+                image_size_limit_mb=safe_get("image_size_limit_mb", 10, int),
+                gif_size_limit_mb=safe_get("gif_size_limit_mb", 15, int),
+                processing_timeout=safe_get("processing_timeout", 30, int),
+                output_quality=safe_get("output_quality", 85, int),
+                enable_gif=safe_get("enable_gif", True, bool),
+                enable_compression=safe_get("enable_compression", True, bool),
+                silent_mode=safe_get("silent_mode", True, bool),
+                enable_auto_cleanup=safe_get("enable_auto_cleanup", True, bool),
+                keep_files_hours=safe_get("keep_files_hours", 1, int),
+                enable_at_avatar=safe_get("enable_at_avatar", True, bool),
             )
             config.validate()
             return config

@@ -109,11 +109,11 @@ class ImageHandler:
                     continue
 
             if not processed:
-                yield self._get_error_message(event, "处理失败")
+                yield self._get_error_message(event, "处理失败", "未能处理任何图像")
 
         except Exception as e:
             logger.error(f"处理指令异常: {str(e)}", exc_info=True)
-            yield self._get_error_message(event, "处理失败")
+            yield self._get_error_message(event, "处理失败", str(e))
 
     async def _process_avatar(self, event, qq_number: str, mode: str):
         """处理用户头像"""
@@ -122,21 +122,19 @@ class ImageHandler:
         avatar_data = await self.avatar_service.get_avatar(qq_number)
         if not avatar_data:
             yield self._get_error_message(event, "获取头像失败")
-            return
-
-        # 保存头像临时文件
-        input_path = await self._save_temp_file(
-            avatar_data, f"avatar_{qq_number}", ".jpg"
-        )
-        if not input_path:
-            yield self._get_error_message(event, "保存头像失败")
-            return
-
-        # 处理头像
-        async for result in self._process_single_image(
-            event, input_path, mode, f"qq_{qq_number}"
-        ):
-            yield result
+            else:
+                # 保存头像临时文件
+                input_path = await self._save_temp_file(
+                    avatar_data, f"avatar_{qq_number}", ".jpg"
+                )
+                if not input_path:
+                    yield self._get_error_message(event, "保存头像失败")
+                else:
+                    # 处理头像
+                    async for result in self._process_single_image(
+                        event, input_path, mode, f"qq_{qq_number}"
+                    ):
+                        yield result
 
     async def _process_single_image(
         self, event, input_path: Path, mode: str, source_info: str
@@ -172,7 +170,7 @@ class ImageHandler:
 
             else:
                 logger.warning(f"图像处理失败: {message}")
-                yield self._get_error_message(event, "处理失败")
+                yield self._get_error_message(event, "处理失败", message)
 
         except Exception as e:
             logger.error(f"处理单图像失败: {str(e)}", exc_info=True)
@@ -336,18 +334,22 @@ class ImageHandler:
                 ]
             )
 
-    def _get_error_message(self, event, message: str):
+    def _get_error_message(self, event, message: str, detail: str = None):
         """
         获取错误消息
 
         Args:
             event: 消息事件对象
-            message: 错误消息
+            message: 简要错误消息
+            detail: 详细错误信息（非静默模式时显示）
         """
         if self.config.silent_mode:
             return event.plain_result(f"❌ {message}")
         else:
-            return event.plain_result(f"❌ {message}")
+            full_msg = f"❌ {message}"
+            if detail:
+                full_msg += f"\n详情: {detail}"
+            return event.plain_result(full_msg)
 
     async def cleanup(self):
         await self.cleanup_manager.cleanup_all()

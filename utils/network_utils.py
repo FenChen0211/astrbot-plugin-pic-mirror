@@ -6,7 +6,7 @@ import aiohttp
 import asyncio
 import socket
 import ipaddress
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from astrbot.api import logger
 
 try:
@@ -94,8 +94,9 @@ class NetworkUtils:
 
     def __init__(self, timeout: int = 30, config=None):
         self.timeout = timeout
+        self.config = config  # 保存配置引用
         self.session = None
-        self.config = config
+        self._session_lock = asyncio.Lock()  # Session创建锁
 
         # 从配置获取大小限制，或使用默认值
         if config and hasattr(config, "max_image_size_bytes"):
@@ -161,9 +162,36 @@ class NetworkUtils:
         except ValueError:
             return False
 
-    async def _is_safe_url_with_ip(self, url: str) -> Optional[tuple]:
+    def _is_ip_format(self, hostname: str) -> bool:
         """
-        安全URL检查 + DNS解析，返回安全IP和主机名
+        检查是否为IP格式（支持各种表示法）
+        - IPv4: 192.168.1.1, 127.0.0.1
+        - IPv6: ::1, 2001:db8::1, [::1]
+        - 整数表示: 2130706433 (0x7F000001)
+        """
+        try:
+            # 检查原始字符串
+            ipaddress.ip_address(hostname)
+            return True
+        except ValueError:
+            return False
+
+    def _is_link_local_ip(self, ip_str: str) -> bool:
+        """检查是否为链路本地地址 (169.254.x.x)"""
+        try:
+            ip = ipaddress.ip_address(ip_str)
+            return ip.is_link_local
+        except ValueError:
+            return False
+
+    async def _is_safe_url_with_ip(self, url: str) -> Optional[Tuple[str, str]]:
+        """
+        增强版安全URL检查 + DNS解析，返回安全IP和主机名
+        
+        改进点：
+        - 对IP格式的URL直接检查，绕过DNS解析
+        - 检测整数格式的IPv4表示（如 2130706433）
+        - 链路本地地址检查 (169.254.x.x)
 
         Args:
             url: 完整URL
@@ -184,7 +212,25 @@ class NetworkUtils:
             if not hostname:
                 return None
 
-            # 1. 快速字符串检查（黑名单）
+            # 1. 如果是IP格式（包含IPv4/IPv6），直接检查
+            if self._is_ip_format(hostname):
+                # 检查是否为私有/本地/链路本地IP
+                if self._is_private_ip(hostname):
+                    logger.warning(f"IP格式危险（私有/回环）: {hostname}")
+                    return None
+                # 对于IP格式，直接返回IP作为主机名
+                return (hostname, hostname)
+            
+            # 移除IPv6方括号（如果存在）
+            if hostname.startswith("[") and hostname.endswith("]"):
+                hostname_clean = hostname[1:-1]
+                if self._is_ip_format(hostname_clean):
+                    if self._is_private_ip(hostname_clean):
+                        logger.warning(f"IPv6格式危险: {hostname}")
+                        return None
+                    return (hostname_clean, hostname)
+
+            # 2. 原有字符串检查（黑名单）- 带通配符支持
             for pattern in self.DANGEROUS_PATTERNS:
                 clean_pattern = pattern[1:] if pattern.startswith(".") else pattern
                 if (
@@ -194,7 +240,7 @@ class NetworkUtils:
                 ):
                     return None
 
-            # 2. DNS解析并验证IP
+            # 3. DNS解析并验证IP
             resolved_ip = await self._resolve_hostname(hostname)
 
             if not resolved_ip:

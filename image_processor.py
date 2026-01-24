@@ -4,6 +4,7 @@
 
 import asyncio
 import io
+import os
 from pathlib import Path
 from typing import Tuple, Optional
 from PIL import Image, ImageSequence
@@ -43,6 +44,40 @@ class MirrorProcessor:
         return True
 
     @staticmethod
+    def _check_image_before_open(file_path: str) -> Tuple[bool, str]:
+        """
+        打开图像前进行安全检查（解压炸弹防护）
+
+        检查项:
+        - 文件大小限制（硬限制100MB）
+        - 文件头校验
+        - 文件是否为空
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            Tuple[bool, str]: (是否安全, 错误信息)
+        """
+        try:
+            # 检查文件大小（防止超大文件）
+            max_size = 100 * 1024 * 1024  # 100MB硬限制
+            file_size = os.path.getsize(file_path)
+            if file_size > max_size:
+                return False, f"文件过大 ({file_size / 1024 / 1024:.1f}MB > 100MB)"
+
+            # 检查文件头
+            with open(file_path, 'rb') as f:
+                header = f.read(100)
+                if not header:
+                    return False, "文件为空或无法读取"
+                    
+            return True, ""
+        except Exception as e:
+            logger.error(f"图像预检查异常: {e}")
+            return False, "文件检查失败"
+
+    @staticmethod
     async def process_image(
         input_path: str,
         output_path: str,
@@ -65,6 +100,11 @@ class MirrorProcessor:
             # 验证文件存在
             if not Path(input_path).exists():
                 return False, f"输入文件不存在: {input_path}"
+
+            # 1. 解压炸弹预检查（文件大小和文件头）
+            is_safe, msg = MirrorProcessor._check_image_before_open(input_path)
+            if not is_safe:
+                return False, msg
 
             # 验证文件大小（使用配置）
             is_valid, error_msg = FileUtils.validate_image_size(input_path, config)
@@ -135,6 +175,25 @@ class MirrorProcessor:
 
                     # 根据输出路径扩展名判断保存格式
                     output_ext = Path(output_path).suffix.lower()
+                    
+                    # === JPEG格式特殊处理：确保RGB模式 ===
+                    if output_ext in ['.jpg', '.jpeg'] and mirrored.mode == 'RGBA':
+                        try:
+                            # 创建一个白色背景，合成不透明图像
+                            background = Image.new('RGB', mirrored.size, (255, 255, 255))
+                            background.paste(mirrored, mask=mirrored.split()[3])
+                            mirrored = background
+                        except Exception as e:
+                            logger.warning(f"JPEG图像RGBA转RGB失败: {e}")
+                            mirrored = mirrored.convert('RGB')
+                    elif output_ext not in ['.png'] and mirrored.mode not in ('RGB', 'L', 'P'):
+                        # 其他格式确保至少是RGB或兼容模式
+                        try:
+                            mirrored = mirrored.convert('RGB')
+                        except Exception as e:
+                            logger.warning(f"图像模式转换失败: {e}")
+                    
+                    # 保存图像
                     if output_ext == ".png":
                         mirrored.save(output_path, optimize=True)
                     elif output_ext == ".webp":
@@ -217,10 +276,17 @@ class MirrorProcessor:
                     if not MirrorProcessor._check_image_size(img):
                         return None, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
 
+                    MAX_FRAMES = 200  # GIF最大帧数限制，防止解压炸弹
+
                     # 一次遍历同时统计和处理帧
                     frame_count = 0
                     for frame in ImageSequence.Iterator(img):
                         frame_count += 1
+                        
+                        # === 帧数安全检查 ===
+                        if frame_count > MAX_FRAMES:
+                            logger.error(f"GIF帧数过多，可能存在解压炸弹风险: {frame_count}帧")
+                            return None, f"GIF帧数过多（{frame_count} > {MAX_FRAMES}），可能存在安全风险"
 
                         # 记录每帧持续时间
                         durations.append(frame.info.get("duration", 100))
