@@ -83,9 +83,9 @@ class CleanupManager:
         if self.plugin_name:
             try:
                 plugin_data_dir = StarTools.get_data_dir(self.plugin_name)
-                if not str(file_path.resolve()).startswith(
-                    str(plugin_data_dir.resolve())
-                ):
+                # 使用 is_relative_to 进行严格的路径层级检查（Python 3.9+）
+                # 防止路径遍历攻击，如 /data/plugin_backup/../plugin/evil.py
+                if not file_path.resolve().is_relative_to(plugin_data_dir.resolve()):
                     logger.error(f"拒绝清理外部路径: {file_path}")
                     return
             except Exception as e:

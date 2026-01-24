@@ -30,19 +30,38 @@ class FixedDNSResolver:
 
     async def resolve(self, hostname: str, port=0, family=socket.AF_INET):
         """
-        解析主机名，返回预先验证的安全IP
+        解析主机名，返回预先验证的安全IP（带地址族验证）
 
         Args:
             hostname: 要解析的域名
             port: 端口
-            family: 地址族
+            family: 地址族（AF_INET 或 AF_INET6）
 
         Returns:
             解析结果列表
         """
         if hostname in self._safe_resolutions:
-            # 返回预先验证的安全IP
             safe_ip = self._safe_resolutions[hostname]
+
+            # 验证预解析IP的类型是否与请求的地址族兼容
+            try:
+                ip_obj = ipaddress.ip_address(safe_ip)
+            except ValueError:
+                # IP格式无效，回退到默认解析器
+                logger.warning(f"无效的预解析IP: {safe_ip}，使用默认解析器")
+                return await self._resolver.resolve(hostname, port, family)
+
+            # 检查地址族兼容性
+            if family == socket.AF_INET and ip_obj.version != 4:
+                # 请求IPv4但预解析的是IPv6
+                logger.warning(f"地址族不匹配: 请求IPv4但 {hostname} 预解析为IPv6 ({safe_ip})，使用默认解析器")
+                return await self._resolver.resolve(hostname, port, family)
+            elif family == socket.AF_INET6 and ip_obj.version != 6:
+                # 请求IPv6但预解析的是IPv4
+                logger.warning(f"地址族不匹配: 请求IPv6但 {hostname} 预解析为IPv4 ({safe_ip})，使用默认解析器")
+                return await self._resolver.resolve(hostname, port, family)
+
+            # 返回预先验证的安全IP
             return [{
                 'hostname': hostname,
                 'host': safe_ip,
@@ -85,18 +104,53 @@ class NetworkUtils:
             self.max_download_size = 10 * 1024 * 1024  # 10MB默认
 
     async def _resolve_hostname(self, hostname: str) -> str:
-        """异步解析域名获取IP地址"""
+        """异步解析域名获取IP地址（优先IPv4）"""
         try:
             loop = asyncio.get_running_loop()
-            # 使用getaddrinfo进行DNS解析
-            addrinfo = await loop.getaddrinfo(
-                hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
-            )
-            if addrinfo:
-                # 返回第一个解析到的IP地址
-                return addrinfo[0][4][0]
+
+            # 第一步：优先尝试解析IPv4（HTTP/HTTPS通常使用IPv4）
+            try:
+                addrinfo = await loop.getaddrinfo(
+                    hostname, None, family=socket.AF_INET, type=socket.SOCK_STREAM
+                )
+                if addrinfo:
+                    return addrinfo[0][4][0]
+            except socket.gaierror:
+                pass  # IPv4失败，继续尝试IPv6
+
+            # 第二步：回退到IPv6（仅当IPv4不可用时）
+            try:
+                addrinfo = await loop.getaddrinfo(
+                    hostname, None, family=socket.AF_INET6, type=socket.SOCK_STREAM
+                )
+                if addrinfo:
+                    return addrinfo[0][4][0]
+            except socket.gaierror:
+                pass  # IPv6也失败
+
+            # 第三步：最后尝试任意地址族
+            try:
+                addrinfo = await loop.getaddrinfo(
+                    hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+                )
+                if addrinfo:
+                    # 优先选择IPv4地址
+                    for entry in addrinfo:
+                        ip = entry[4][0]
+                        try:
+                            ip_obj = ipaddress.ip_address(ip)
+                            if ip_obj.version == 4:
+                                return ip
+                        except ValueError:
+                            continue
+                    # 没有IPv4，返回第一个
+                    return addrinfo[0][4][0]
+            except socket.gaierror:
+                pass
+
         except (socket.gaierror, asyncio.CancelledError, Exception) as e:
             logger.debug(f"DNS解析失败 {hostname}: {e}")
+
         return None
 
     def _is_private_ip(self, ip_str: str) -> bool:

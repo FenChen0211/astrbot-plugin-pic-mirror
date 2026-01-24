@@ -4,8 +4,10 @@
 
 import os
 import re
-import hashlib
 import base64
+import hashlib
+import secrets
+import time as time_module
 from pathlib import Path
 from typing import Optional, Tuple, List, TYPE_CHECKING
 from astrbot.api import logger
@@ -91,9 +93,6 @@ class FileUtils:
         Returns:
             str: 生成的文件名
         """
-        import secrets
-        import time
-
         # Base64数据优化：避免处理完整大型数据
         if len(original_url) > 1000:
             # 大型数据：使用MD5摘要代替完整字符串
@@ -103,7 +102,7 @@ class FileUtils:
             hash_input = f"{original_url}_{mode}"
 
         # 添加熵确保唯一性
-        timestamp = int(time.time())
+        timestamp = int(time_module.time())
         random_token = secrets.token_hex(4)
 
         hash_input = f"{hash_input}_{timestamp}_{random_token}"

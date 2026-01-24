@@ -3,6 +3,9 @@
 """
 
 import asyncio
+import base64
+import hashlib
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 from astrbot.api import logger
@@ -183,7 +186,6 @@ class ImageHandler:
 
         # 如果是base64，提前计算摘要传递
         elif image_source.startswith("base64://"):
-            import hashlib
             source_hash = hashlib.md5(image_source.encode()).hexdigest()[:16]
             return await self._decode_base64_image(image_source, source_hash)
 
@@ -224,9 +226,7 @@ class ImageHandler:
             loop = asyncio.get_running_loop()
 
             def decode_in_thread():
-                import base64 as b64
-
-                return b64.b64decode(base64_data, validate=True)
+                return base64.b64decode(base64_data, validate=True)
 
             image_data = await loop.run_in_executor(None, decode_in_thread)
 
@@ -248,7 +248,7 @@ class ImageHandler:
             return None
 
     def _get_local_file(self, file_path: str) -> Optional[Path]:
-        """获取本地文件 - 安全版本"""
+        """获取本地文件 - 安全版本（防路径遍历）"""
         try:
             # 只允许相对路径，且必须在data_dir内
             clean_path = Path(file_path)
@@ -261,9 +261,10 @@ class ImageHandler:
             # 构建安全路径
             safe_path = (self.data_dir / clean_path).resolve()
 
-            # 验证路径是否在data_dir内
+            # 使用 is_relative_to 进行严格的路径层级检查（Python 3.9+）
+            # 防止路径遍历攻击，如 ../../../etc/passwd
             data_dir_resolved = self.data_dir.resolve()
-            if data_dir_resolved in safe_path.parents or data_dir_resolved == safe_path:
+            if safe_path.is_relative_to(data_dir_resolved):
                 if safe_path.exists():
                     return safe_path
             else:
@@ -279,8 +280,6 @@ class ImageHandler:
     ) -> Optional[Path]:
         """保存临时文件"""
         try:
-            import tempfile
-
             with tempfile.NamedTemporaryFile(
                 prefix=prefix, suffix=extension, delete=False, dir=str(self.data_dir)
             ) as tmp:
