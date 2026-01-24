@@ -7,13 +7,18 @@ from typing import List, Dict, Any, Optional
 from astrbot.api import logger
 from astrbot.api.star import StarTools
 
+try:
+    from ..constants import PLUGIN_NAME
+except ImportError:
+    from ..constants import PLUGIN_NAME
+
 
 class CleanupManager:
     """清理管理器"""
 
     def __init__(self, config, plugin_name: str = None):
         self.config = config
-        self.plugin_name = plugin_name or "astrbot-plugin-pic-mirror"  # 默认值
+        self.plugin_name = plugin_name or PLUGIN_NAME  # 默认值
         self.cleanup_queue: List[Dict[str, Any]] = []
         self._cleanup_task: Optional[asyncio.Task] = None  # 不立即创建
         self._stop_event = asyncio.Event()

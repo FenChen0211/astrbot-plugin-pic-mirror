@@ -9,6 +9,11 @@ import ipaddress       # ✅ 添加这行
 from typing import Optional
 from astrbot.api import logger
 
+try:
+    from ..constants import PLUGIN_NAME
+except ImportError:
+    from ..constants import PLUGIN_NAME
+
 
 class NetworkUtils:
     """网络请求工具类"""
@@ -27,14 +32,7 @@ class NetworkUtils:
         self.session = None
         self.config = config
         
-        # 危险域名/IP黑名单 - 统一使用DANGEROUS_PATTERNS类常量
-        self.dangerous_hosts = {
-            'localhost', '127.0.0.1', '0.0.0.0', '::1',
-            '169.254.169.254',  # 云元数据
-            'metadata.google.internal',
-            'metadata.tencentyun.com',
-            '100.100.100.200',  # 阿里云
-        }
+        
         
         # 从配置获取大小限制，或使用默认值
         if config and hasattr(config, 'max_image_size_bytes'):
@@ -89,7 +87,9 @@ class NetworkUtils:
             
             # 1. 快速字符串检查（黑名单）- 使用类常量
             for pattern in self.DANGEROUS_PATTERNS:
-                if hostname == pattern or hostname.endswith('.' + pattern) or hostname.startswith(pattern):
+                # 统一处理：如果pattern以点开头，去掉点
+                clean_pattern = pattern[1:] if pattern.startswith('.') else pattern
+                if hostname == pattern or hostname.endswith('.' + clean_pattern) or hostname.startswith(pattern):
                     return False
             
             # 2. DNS解析检查

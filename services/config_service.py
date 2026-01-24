@@ -6,6 +6,11 @@ from typing import Dict, Any
 from pathlib import Path  # ✅ 添加这行
 from astrbot.api import logger
 
+try:
+    from ..constants import PLUGIN_NAME
+except ImportError:
+    from ..constants import PLUGIN_NAME
+
 # 统一使用相对导入
 from ..config import PluginConfig
 

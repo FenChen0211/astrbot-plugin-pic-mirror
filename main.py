@@ -7,6 +7,11 @@ from astrbot.api.star import Context, Star
 from astrbot.api import logger
 import asyncio
 
+try:
+    from .constants import PLUGIN_NAME
+except ImportError:
+    from .constants import PLUGIN_NAME
+
 from .services.config_service import ConfigService
 from .core.image_handler import ImageHandler
 

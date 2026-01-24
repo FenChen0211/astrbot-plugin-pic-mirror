@@ -9,6 +9,11 @@ from astrbot.api import logger
 from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
 
+try:
+    from ..constants import PLUGIN_NAME
+except ImportError:
+    from ..constants import PLUGIN_NAME
+
 # 统一使用相对导入
 from ..utils.network_utils import NetworkUtils
 from ..utils.message_utils import MessageUtils
@@ -22,7 +27,7 @@ class ImageHandler:
     """图像处理器"""
     
     def __init__(self, config_service, plugin_name: str = None):
-        self.PLUGIN_NAME = plugin_name or "astrbot-plugin-pic-mirror"
+        self.PLUGIN_NAME = plugin_name or PLUGIN_NAME
         
         self.config_service = config_service
         self.config = config_service.config  # ✅ 直接使用

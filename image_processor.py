@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Tuple, Optional
 from PIL import Image, ImageSequence
 
+try:
+    from .constants import PLUGIN_NAME
+except ImportError:
+    from .constants import PLUGIN_NAME
+
 # 注意：PIL全局设置已移除，避免影响其他插件
 
 # 统一使用相对导入
@@ -47,7 +52,7 @@ class MirrorProcessor:
         input_path: str,
         output_path: str,
         mode: str,
-        plugin_name: str = "astrbot-plugin-pic-mirror",
+        plugin_name: str = PLUGIN_NAME,
         config: Optional[PluginConfig] = None,
     ) -> Tuple[bool, str]:
         """
