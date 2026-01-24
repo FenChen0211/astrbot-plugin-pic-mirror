@@ -25,5 +25,3 @@ class AvatarService:
         except Exception as e:
             logger.error(f"获取头像异常 {qq_number}: {e}")
             return None
-
-    

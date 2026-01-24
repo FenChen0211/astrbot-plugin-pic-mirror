@@ -28,23 +28,23 @@ class MirrorProcessor:
     def _check_image_size(img: Image.Image) -> bool:
         """
         检查图像尺寸，防止解压炸弹 - 简化版
-        
+
         Args:
             img: PIL图像对象
-            
+
         Returns:
             bool: 图像尺寸是否在安全范围内
         """
         pixels = img.width * img.height
-        
+
         # 1亿像素硬限制
         if pixels > 10000 * 10000:
             return False
-        
+
         # 2500万像素警告
         if pixels > 5000 * 5000:
             logger.warning(f"处理大图像: {pixels}像素 ({img.width}x{img.height})")
-        
+
         return True
 
     @staticmethod
@@ -118,8 +118,11 @@ class MirrorProcessor:
             with Image.open(input_path) as img:
                 # 检查图像尺寸安全性（防止解压炸弹）
                 if not MirrorProcessor._check_image_size(img):
-                    return False, f"图像尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
-                
+                    return (
+                        False,
+                        f"图像尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
+                    )
+
                 # 转换模式（确保透明度处理正确）
                 if img.mode == "P":
                     img = img.convert("RGBA")
@@ -129,24 +132,18 @@ class MirrorProcessor:
                 # 应用对称变换
                 loop = asyncio.get_running_loop()
                 mirrored = await loop.run_in_executor(
-                    None,
-                    MirrorProcessor._apply_mirror,
-                    img,
-                    mode
+                    None, MirrorProcessor._apply_mirror, img, mode
                 )
 
                 # 应用压缩（如果启用）
                 if config and config.enable_compression:
                     mirrored = await loop.run_in_executor(
-                        None,
-                        MirrorProcessor._compress_image,
-                        mirrored,
-                        config
+                        None, MirrorProcessor._compress_image, mirrored, config
                     )
 
                 # 保存图像（使用配置的质量设置）
                 quality = config.output_quality if config else 85
-                
+
                 # 将保存操作放到线程池中执行
                 def save_image():
                     if input_path.lower().endswith(".png"):
@@ -157,7 +154,7 @@ class MirrorProcessor:
                         )  # method=6为默认平衡模式
                     else:
                         mirrored.save(output_path, quality=quality, optimize=True)
-                
+
                 await loop.run_in_executor(None, save_image)
 
                 return True, "图像处理成功"
@@ -221,13 +218,16 @@ class MirrorProcessor:
             with Image.open(input_path) as img:
                 # 检查GIF整体尺寸安全性
                 if not MirrorProcessor._check_image_size(img):
-                    return False, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
-                
+                    return (
+                        False,
+                        f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
+                    )
+
                 # 一次遍历同时统计和处理帧（性能优化）
                 frame_count = 0
                 for frame in ImageSequence.Iterator(img):
                     frame_count += 1
-                    
+
                     # 记录每帧持续时间
                     durations.append(frame.info.get("duration", 100))
 
@@ -239,10 +239,7 @@ class MirrorProcessor:
 
                     # 将CPU密集型的图像处理操作放到线程池中执行
                     mirrored_frame = await loop.run_in_executor(
-                        None,
-                        MirrorProcessor._apply_mirror,
-                        frame,
-                        mode
+                        None, MirrorProcessor._apply_mirror, frame, mode
                     )
 
                     # 应用压缩（如果启用）
@@ -251,11 +248,11 @@ class MirrorProcessor:
                             None,
                             MirrorProcessor._compress_image,
                             mirrored_frame,
-                            config
+                            config,
                         )
 
                     frames.append(mirrored_frame)
-                
+
                 # 帧数过多时提示
                 if frame_count > 100:
                     logger.warning(f"处理大型GIF: {frame_count}帧，可能需要较长时间")
@@ -272,7 +269,7 @@ class MirrorProcessor:
                         loop=0,
                         optimize=True,
                     )
-                
+
                 await loop.run_in_executor(None, save_gif)
                 return True, "GIF处理成功"
             else:

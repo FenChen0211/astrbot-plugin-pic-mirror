@@ -42,7 +42,9 @@ class CleanupManager:
 
             # 使用 wait_for 来响应停止信号
             try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=300)  # 5分钟检查一次
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=300
+                )  # 5分钟检查一次
                 break  # 收到停止信号，退出循环
             except asyncio.TimeoutError:
                 continue  # 超时，继续下一次清理
@@ -50,18 +52,18 @@ class CleanupManager:
     async def _process_cleanup_queue(self):
         """处理清理队列 - 线程安全版本"""
         current_time = time.time()
-        
+
         async with self._queue_lock:  # ✅ 加锁
             items_to_remove = []
-            
+
             for item in self.cleanup_queue:
                 file_path = item.get("path")
                 expiry_time = item.get("expiry_time")
-                
+
                 if not file_path or not expiry_time or not file_path.exists():
                     items_to_remove.append(item)
                     continue
-                
+
                 if current_time >= expiry_time:
                     try:
                         file_path.unlink()
@@ -69,7 +71,7 @@ class CleanupManager:
                         items_to_remove.append(item)
                     except Exception as e:
                         logger.warning(f"清理文件失败 {file_path}: {e}")
-            
+
             # 批量移除
             for item in items_to_remove:
                 if item in self.cleanup_queue:
@@ -81,26 +83,30 @@ class CleanupManager:
         if self.plugin_name:
             try:
                 plugin_data_dir = StarTools.get_data_dir(self.plugin_name)
-                if not str(file_path.resolve()).startswith(str(plugin_data_dir.resolve())):
+                if not str(file_path.resolve()).startswith(
+                    str(plugin_data_dir.resolve())
+                ):
                     logger.error(f"拒绝清理外部路径: {file_path}")
                     return
             except Exception as e:
                 logger.warning(f"无法验证插件数据目录: {e}")
                 pass
-            
+
         if keep_hours <= 0:
             asyncio.create_task(self._cleanup_immediately(file_path))
         else:
             expiry_time = time.time() + (keep_hours * 3600)
-            
+
             async def _schedule():
                 async with self._queue_lock:  # ✅ 加锁
-                    self.cleanup_queue.append({
-                        "path": file_path,
-                        "expiry_time": expiry_time,
-                        "scheduled_time": time.time(),
-                    })
-            
+                    self.cleanup_queue.append(
+                        {
+                            "path": file_path,
+                            "expiry_time": expiry_time,
+                            "scheduled_time": time.time(),
+                        }
+                    )
+
             asyncio.create_task(_schedule())
             logger.info(f"已安排清理 {file_path.name}, {keep_hours}小时后删除")
 
@@ -117,7 +123,7 @@ class CleanupManager:
     async def cleanup_all(self):
         """清理所有资源"""
         logger.info("开始清理清理管理器资源...")
-        
+
         # 停止清理任务
         if self._cleanup_task and not self._cleanup_task.done():
             self._stop_event.set()
@@ -130,11 +136,11 @@ class CleanupManager:
                     await self._cleanup_task
                 except asyncio.CancelledError:
                     pass
-        
+
         # 处理所有待清理的文件
         await self._process_cleanup_queue()
-        
+
         # 清空队列
         self.cleanup_queue.clear()
-        
+
         logger.info("清理管理器资源清理完成")

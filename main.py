@@ -15,14 +15,14 @@ from .core.image_handler import ImageHandler
 
 class PicMirrorPlugin(Star):
     """图像对称处理插件"""
-    
+
     def __init__(self, context: Context):
         super().__init__(context)
-        
+
         # 旧版初始化方式
         self.config_service = ConfigService(self)
         self.image_handler = ImageHandler(self.config_service)
-        
+
         logger.info("图像对称插件已加载")
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
 
@@ -33,7 +33,7 @@ class PicMirrorPlugin(Star):
             logger.error("image_handler 未初始化")
             yield event.plain_result("❌ 插件尚未初始化完成，请稍后再试")
             return
-            
+
         async for result in self.image_handler.process_mirror(event, mode):
             yield result
 
@@ -61,21 +61,23 @@ class PicMirrorPlugin(Star):
         async for result in self._handle_mirror_command(event, "bottom_to_top"):
             yield result
 
-    @filter.command("对称帮助", alias={"mirror help", "镜像帮助"})  # ✅ 移除重复的"对称帮助"
+    @filter.command(
+        "对称帮助", alias={"mirror help", "镜像帮助"}
+    )  # ✅ 移除重复的"对称帮助"
     async def mirror_help(self, event: AstrMessageEvent):
         """显示镜像插件帮助信息"""
         if self.config_service is None:
             logger.error("config_service 未初始化")
             yield event.plain_result("❌ 插件尚未初始化完成，请稍后再试")
             return
-            
+
         help_text = self.config_service.get_help_text()
         yield event.plain_result(help_text)
 
     async def initialize(self):
         """插件异步初始化"""
         try:
-            if hasattr(self, 'image_handler') and self.image_handler:
+            if hasattr(self, "image_handler") and self.image_handler:
                 await self.image_handler.initialize()
             logger.info("图像对称插件初始化完成")
         except Exception as e:
@@ -84,7 +86,7 @@ class PicMirrorPlugin(Star):
     async def terminate(self):
         """插件卸载时调用"""
         try:
-            if hasattr(self, 'image_handler') and self.image_handler is not None:
+            if hasattr(self, "image_handler") and self.image_handler is not None:
                 await self.image_handler.cleanup()
             else:
                 logger.warning("image_handler 未初始化，跳过清理操作")

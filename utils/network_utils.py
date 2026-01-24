@@ -4,8 +4,8 @@
 
 import aiohttp
 import asyncio
-import socket           # ✅ 添加这行
-import ipaddress       # ✅ 添加这行
+import socket  # ✅ 添加这行
+import ipaddress  # ✅ 添加这行
 from typing import Optional
 from astrbot.api import logger
 
@@ -17,38 +17,40 @@ except ImportError:
 
 class NetworkUtils:
     """网络请求工具类"""
-    
+
     # 类常量
     DANGEROUS_PATTERNS = [
-        'localhost', '127.0.0.1', '0.0.0.0', '::1',
-        '169.254.', 'metadata.',
-        '.internal', '.local', '.localdomain',
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "169.254.",
+        "metadata.",
+        ".internal",
+        ".local",
+        ".localdomain",
     ]
-    
-    PRIVATE_IP_PREFIXES = ['192.168.', '10.', '172.16.']
-    
+
+    PRIVATE_IP_PREFIXES = ["192.168.", "10.", "172.16."]
+
     def __init__(self, timeout: int = 30, config=None):
         self.timeout = timeout
         self.session = None
         self.config = config
-        
-        
-        
+
         # 从配置获取大小限制，或使用默认值
-        if config and hasattr(config, 'max_image_size_bytes'):
+        if config and hasattr(config, "max_image_size_bytes"):
             self.max_download_size = config.max_image_size_bytes
         else:
             self.max_download_size = 10 * 1024 * 1024  # 10MB默认
-    
+
     async def _resolve_hostname(self, hostname: str) -> str:
         """异步解析域名获取IP地址"""
         try:
             loop = asyncio.get_running_loop()
             # 使用getaddrinfo进行DNS解析
             addrinfo = await loop.getaddrinfo(
-                hostname, None, 
-                family=socket.AF_UNSPEC, 
-                type=socket.SOCK_STREAM
+                hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
             )
             if addrinfo:
                 # 返回第一个解析到的IP地址
@@ -56,7 +58,7 @@ class NetworkUtils:
         except (socket.gaierror, asyncio.CancelledError, Exception) as e:
             logger.debug(f"DNS解析失败 {hostname}: {e}")
         return None
-    
+
     def _is_private_ip(self, ip_str: str) -> bool:
         """检查IP是否为私有地址"""
         try:
@@ -64,7 +66,7 @@ class NetworkUtils:
             return ip.is_private or ip.is_loopback or ip.is_link_local
         except ValueError:
             return False
-    
+
     async def get_session(self):
         """获取或创建HTTP会话"""
         if self.session is None or self.session.closed:
@@ -75,47 +77,52 @@ class NetworkUtils:
         """真正的SSRF防护 - 包含DNS解析检查"""
         try:
             from urllib.parse import urlparse
+
             parsed = urlparse(url)
-            
+
             # 基础检查
-            if parsed.scheme not in ('http', 'https'):
+            if parsed.scheme not in ("http", "https"):
                 return False
-            
+
             hostname = parsed.hostname
             if not hostname:
                 return False
-            
+
             # 1. 快速字符串检查（黑名单）- 使用类常量
             for pattern in self.DANGEROUS_PATTERNS:
                 # 统一处理：如果pattern以点开头，去掉点
-                clean_pattern = pattern[1:] if pattern.startswith('.') else pattern
-                if hostname == pattern or hostname.endswith('.' + clean_pattern) or hostname.startswith(pattern):
+                clean_pattern = pattern[1:] if pattern.startswith(".") else pattern
+                if (
+                    hostname == pattern
+                    or hostname.endswith("." + clean_pattern)
+                    or hostname.startswith(pattern)
+                ):
                     return False
-            
+
             # 2. DNS解析检查
             resolved_ip = await self._resolve_hostname(hostname)
-            
+
             # ❌ 修改前（危险）：
             # if '.' in hostname and not any(hostname.startswith(p) for p in ['192.168.', '10.', '172.16.']):
             #     logger.info(f"允许未解析域名（可能是公网）: {hostname}")
             #     return True
-            
+
             # ✅ 修改后（安全）：
             if not resolved_ip:
                 logger.warning(f"DNS解析失败，拒绝访问: {hostname}")
                 return False  # 解析失败就拒绝！
-            
+
             # IP地址检查
             if self._is_private_ip(resolved_ip):
                 logger.warning(f"域名解析到私有IP: {hostname} -> {resolved_ip}")
                 return False
-            
+
             return True
-            
+
         except Exception as e:
             logger.warning(f"URL安全检查失败 {url}: {e}")
             return False  # 有疑问就拒绝
-    
+
     async def cleanup(self):
         """清理资源，关闭会话"""
         if self.session and not self.session.closed:
@@ -136,7 +143,7 @@ class NetworkUtils:
         if not is_safe:
             logger.warning(f"拒绝不安全的URL: {url}")
             return None
-        
+
         try:
             session = await self.get_session()
             async with session.get(url, timeout=self.timeout) as response:

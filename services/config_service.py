@@ -17,10 +17,10 @@ from ..config import PluginConfig
 
 class ConfigService:
     """配置服务类"""
-    
+
     # 类常量
     PLUGIN_VERSION = "1.2.0"  # 集中管理版本号
-    
+
     def __init__(self, plugin_instance, config_dict=None):
         self.plugin = plugin_instance
         self._config = None  # 延迟加载
@@ -31,7 +31,9 @@ class ConfigService:
         """简化版本 - 只用标准方式"""
         try:
             # 直接使用context.config
-            if hasattr(self.plugin, 'context') and hasattr(self.plugin.context, 'config'):
+            if hasattr(self.plugin, "context") and hasattr(
+                self.plugin.context, "config"
+            ):
                 config_dict = self.plugin.context.config
                 return PluginConfig.load_from_dict(config_dict)
             # 否则返回默认
@@ -44,7 +46,7 @@ class ConfigService:
         """获取配置摘要"""
         # 确保配置已加载
         config = self.config_obj  # 使用config_obj属性确保加载
-        
+
         return (
             f"图像限制={config.image_size_limit_mb}MB, "
             f"GIF限制={config.gif_size_limit_mb}MB, "
@@ -80,16 +82,17 @@ class ConfigService:
             # 从metadata.yaml读取版本号
             try:
                 import yaml
-                metadata_path = Path(__file__).parent.parent / 'metadata.yaml'
+
+                metadata_path = Path(__file__).parent.parent / "metadata.yaml"
                 if metadata_path.exists():
-                    with open(metadata_path, 'r', encoding='utf-8') as f:
+                    with open(metadata_path, "r", encoding="utf-8") as f:
                         metadata = yaml.safe_load(f)
-                        version = metadata.get('version', '1.2.0')
+                        version = metadata.get("version", "1.2.0")
                 else:
-                    version = '1.2.0'
+                    version = "1.2.0"
             except Exception:
-                version = '1.2.0'
-            
+                version = "1.2.0"
+
             return f"""📷 图像对称插件使用说明 v{self.PLUGIN_VERSION}
 
 当前配置:
@@ -126,8 +129,8 @@ GitHub: https://github.com/FenChen0211/astrbot-plugin-pic-mirror"""
         if self._config is None:
             self._config = self._load_config()
         return self._config
-    
-    @property 
+
+    @property
     def config(self):
         """配置对象别名"""
         return self.config_obj

@@ -25,10 +25,10 @@ from ..image_processor import MirrorProcessor
 
 class ImageHandler:
     """图像处理器"""
-    
+
     def __init__(self, config_service, plugin_name: str = None):
         self.PLUGIN_NAME = plugin_name or PLUGIN_NAME
-        
+
         self.config_service = config_service
         self.config = config_service.config  # ✅ 直接使用
 
@@ -208,32 +208,35 @@ class ImageHandler:
         try:
             # 移除base64前缀
             if base64_data.startswith("base64://"):
-                base64_data = base64_data[len("base64://"):]
-            
+                base64_data = base64_data[len("base64://") :]
+
             # 1. 检查base64字符串长度
             MAX_BASE64_LENGTH = 20 * 1024 * 1024 * 4 // 3  # 对应20MB原始数据
             if len(base64_data) > MAX_BASE64_LENGTH:
                 logger.error(f"Base64数据过长: {len(base64_data)}字符")
                 return None
-                
+
             # 将解码操作放入线程池避免阻塞
             loop = asyncio.get_running_loop()
-            
+
             def decode_in_thread():
                 import base64 as b64
+
                 return b64.b64decode(base64_data, validate=True)
-            
+
             image_data = await loop.run_in_executor(None, decode_in_thread)
-            
+
             # 3. 检查解码后大小
-            max_size = self.config.max_image_size_bytes if self.config else 10 * 1024 * 1024
+            max_size = (
+                self.config.max_image_size_bytes if self.config else 10 * 1024 * 1024
+            )
             if len(image_data) > max_size:
                 logger.error(f"解码后图像过大: {len(image_data)}字节 > {max_size}字节")
                 return None
-                
+
             # 4. 保存
             return await self._save_temp_file(image_data, "base64", ".png")
-            
+
         except Exception as e:
             logger.error(f"base64解码失败: {e}")
             return None
@@ -243,15 +246,15 @@ class ImageHandler:
         try:
             # 只允许相对路径，且必须在data_dir内
             clean_path = Path(file_path)
-            
+
             # 检查是否为相对路径（不允许绝对路径）
             if clean_path.is_absolute():
                 logger.warning(f"拒绝绝对路径: {file_path}")
                 return None
-                
+
             # 构建安全路径
             safe_path = (self.data_dir / clean_path).resolve()
-            
+
             # 验证路径是否在data_dir内
             data_dir_resolved = self.data_dir.resolve()
             if data_dir_resolved in safe_path.parents or data_dir_resolved == safe_path:
@@ -259,13 +262,15 @@ class ImageHandler:
                     return safe_path
             else:
                 logger.warning(f"路径越界: {file_path}")
-                
+
         except Exception as e:
             logger.warning(f"本地路径解析失败 {file_path}: {e}")
-        
+
         return None
 
-    async def _save_temp_file(self, data: bytes, prefix: str, extension: str) -> Optional[Path]:
+    async def _save_temp_file(
+        self, data: bytes, prefix: str, extension: str
+    ) -> Optional[Path]:
         """保存临时文件"""
         try:
             import tempfile
@@ -283,14 +288,23 @@ class ImageHandler:
         """清理输入文件 - 更安全版本"""
         if not file_path or not file_path.exists():
             return
-        
+
         try:
             # 更精确的判断：文件在插件数据目录内且是临时文件
             if file_path.parent == self.data_dir:
                 filename = file_path.name.lower()
                 # 修复前缀匹配：匹配"downloaded"和"downloaded_"等多种前缀
-                temp_prefixes = ["tmp", "temp", "avatar_", "avatar", "downloaded", "downloaded_", "base64", "base64_"]
-                
+                temp_prefixes = [
+                    "tmp",
+                    "temp",
+                    "avatar_",
+                    "avatar",
+                    "downloaded",
+                    "downloaded_",
+                    "base64",
+                    "base64_",
+                ]
+
                 if any(filename.startswith(prefix) for prefix in temp_prefixes):
                     file_path.unlink()
                     logger.info(f"清理临时输入文件: {file_path.name}")
@@ -332,11 +346,11 @@ class ImageHandler:
 
     async def cleanup(self):
         await self.cleanup_manager.cleanup_all()
-        
+
         # 关闭网络连接
-        if hasattr(self.network_utils, 'cleanup'):
+        if hasattr(self.network_utils, "cleanup"):
             await self.network_utils.cleanup()
-        
+
         self.network_utils = None
         self.message_utils = None
         self.file_utils = None

@@ -17,7 +17,7 @@ class MessageUtils:
             messages = event.get_messages()
         except AttributeError:
             messages = event.message_obj.message
-        
+
         for component in messages:
             if isinstance(component, Comp.At):
                 # At组件可能有qq属性
@@ -34,14 +34,14 @@ class MessageUtils:
                         if attr_value:
                             logger.debug(f"提取到@QQ号: {attr_value}")  # ✅ debug级别
                             return str(attr_value)
-        
+
         return None
 
     @staticmethod
     def extract_image_sources(event) -> List[str]:
         """提取图像源 - 减少日志版本"""
         image_sources = []
-        
+
         try:
             messages = event.get_messages()
         except AttributeError:
@@ -54,12 +54,12 @@ class MessageUtils:
                 if image_url:
                     image_sources.append(image_url)
                     logger.debug(f"提取到图片源: {image_url[:30]}...")  # ✅ debug级别
-                    
+
             # 处理Reply组件
             elif isinstance(component, Comp.Reply):
                 reply_images = MessageUtils._extract_from_reply_component(component)
                 image_sources.extend(reply_images)
-        
+
         logger.info(f"找到的图像源数量: {len(image_sources)}")  # ✅ info保留但只记数量
         return image_sources
 
@@ -119,7 +119,9 @@ class MessageUtils:
 
         # 检查chain属性
         if hasattr(component, "chain") and component.chain:
-            logger.debug(f"Reply组件有chain属性，长度: {len(component.chain)}")  # ✅ debug级别
+            logger.debug(
+                f"Reply组件有chain属性，长度: {len(component.chain)}"
+            )  # ✅ debug级别
 
             for reply_component in component.chain:
                 if isinstance(reply_component, Comp.Image):
