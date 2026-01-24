@@ -9,21 +9,13 @@ from astrbot.api import logger
 from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
 
-# 保持旧版导入方式
-try:
-    from utils.network_utils import NetworkUtils
-    from utils.message_utils import MessageUtils
-    from utils.file_utils import FileUtils
-    from core.avatar_service import AvatarService
-    from core.cleanup_manager import CleanupManager
-    from image_processor import MirrorProcessor
-except ImportError:
-    from ..utils.network_utils import NetworkUtils
-    from ..utils.message_utils import MessageUtils
-    from ..utils.file_utils import FileUtils
-    from ..core.avatar_service import AvatarService
-    from ..core.cleanup_manager import CleanupManager
-    from ..image_processor import MirrorProcessor  # 正确：从上级目录导入
+# 统一使用相对导入
+from ..utils.network_utils import NetworkUtils
+from ..utils.message_utils import MessageUtils
+from ..utils.file_utils import FileUtils
+from ..core.avatar_service import AvatarService
+from ..core.cleanup_manager import CleanupManager
+from ..image_processor import MirrorProcessor
 
 
 class ImageHandler:
@@ -274,21 +266,21 @@ class ImageHandler:
             return None
 
     def _cleanup_input_file(self, file_path: Path):
-        """清理输入文件"""
+        """清理输入文件 - 更安全版本"""
         if not file_path or not file_path.exists():
             return
-
+        
         try:
-            # 清理临时文件
-            if (
-                "tmp" in str(file_path)
-                or "avatar_" in str(file_path)
-                or "downloaded" in str(file_path)
-            ):
-                file_path.unlink()
-                logger.info(f"清理临时输入文件: {file_path.name}")
+            # 更精确的判断：文件在插件数据目录内且是临时文件
+            if file_path.parent == self.data_dir:
+                filename = file_path.name.lower()
+                temp_prefixes = ["tmp", "temp", "avatar_", "downloaded_", "base64_"]
+                
+                if any(filename.startswith(prefix) for prefix in temp_prefixes):
+                    file_path.unlink()
+                    logger.info(f"清理临时输入文件: {file_path.name}")
         except Exception as e:
-            logger.warning(f"清理输入文件失败: {e}")
+            logger.warning(f"清理输入文件失败 {file_path}: {e}")
 
     def _get_result_message(self, event, output_path: Path, mode: str):
         """

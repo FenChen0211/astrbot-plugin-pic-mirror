@@ -10,13 +10,10 @@ from PIL import Image, ImageSequence
 
 # 注意：PIL全局设置已移除，避免影响其他插件
 
-# 修复：使用和旧版相同的智能导入方式
-try:
-    from utils.file_utils import FileUtils
-    from config import PluginConfig
-except ImportError:
-    from .utils.file_utils import FileUtils
-    from .config import PluginConfig
+# 统一使用相对导入
+from .utils.file_utils import FileUtils
+from .config import PluginConfig
+from astrbot.api import logger
 
 
 class MirrorProcessor:
@@ -25,7 +22,7 @@ class MirrorProcessor:
     @staticmethod
     def _check_image_size(img: Image.Image) -> bool:
         """
-        检查图像尺寸是否安全（防止解压炸弹）- 改进版本
+        检查图像尺寸，防止解压炸弹 - 简化版
         
         Args:
             img: PIL图像对象
@@ -35,14 +32,15 @@ class MirrorProcessor:
         """
         pixels = img.width * img.height
         
-        # 设置多个阈值
-        if pixels > 10000 * 10000:  # 1亿像素 - 硬限制
+        # 1亿像素硬限制
+        if pixels > 10000 * 10000:
             return False
-        elif pixels > 5000 * 5000:   # 2500万像素 - 警告
-            logger.warning(f"处理大图像: {pixels}像素")
-            return True  # 允许但记录
-        else:
-            return True
+        
+        # 2500万像素警告
+        if pixels > 5000 * 5000:
+            logger.warning(f"处理大图像: {pixels}像素 ({img.width}x{img.height})")
+        
+        return True
 
     @staticmethod
     async def process_image(
@@ -219,6 +217,15 @@ class MirrorProcessor:
                 # 检查GIF整体尺寸安全性
                 if not MirrorProcessor._check_image_size(img):
                     return False, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
+                
+                # 计算帧数
+                frame_count = 0
+                for _ in ImageSequence.Iterator(img):
+                    frame_count += 1
+                
+                # 帧数过多时提示
+                if frame_count > 100:
+                    logger.warning(f"处理大型GIF: {frame_count}帧，可能需要较长时间")
                 
                 for frame in ImageSequence.Iterator(img):
                     # 记录每帧持续时间

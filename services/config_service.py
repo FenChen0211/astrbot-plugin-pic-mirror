@@ -3,18 +3,19 @@
 """
 
 from typing import Dict, Any
+from pathlib import Path  # ✅ 添加这行
 from astrbot.api import logger
 
-# 修复：使用和 image_processor.py 相同的智能导入
-try:
-    from config import PluginConfig  # 先尝试绝对导入
-except ImportError:
-    from ..config import PluginConfig  # 失败再尝试相对导入
+# 统一使用相对导入
+from ..config import PluginConfig
 
 
 class ConfigService:
     """配置服务类"""
-
+    
+    # 类常量
+    PLUGIN_VERSION = "1.2.0"  # 集中管理版本号
+    
     def __init__(self, plugin_instance, config_dict=None):
         self.plugin = plugin_instance
         self._config = None  # 延迟加载
@@ -84,7 +85,7 @@ class ConfigService:
             except Exception:
                 version = '1.2.0'
             
-            return f"""📷 图像对称插件使用说明 v{version}
+            return f"""📷 图像对称插件使用说明 v{self.PLUGIN_VERSION}
 
 当前配置:
 • 图像大小限制: {config.image_size_limit_mb}MB

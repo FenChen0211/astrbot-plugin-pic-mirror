@@ -10,10 +10,21 @@ from astrbot.api import logger
 
 class NetworkUtils:
     """网络请求工具类"""
-
-    def __init__(self, timeout: int = 30):
+    
+    # 类常量
+    DANGEROUS_PATTERNS = [
+        'localhost', '127.0.0.1', '0.0.0.0', '::1',
+        '169.254.', 'metadata.',
+        '.internal', '.local', '.localdomain',
+    ]
+    
+    PRIVATE_IP_PREFIXES = ['192.168.', '10.', '172.16.']
+    
+    def __init__(self, timeout: int = 30, config=None):
         self.timeout = timeout
         self.session = None
+        self.config = config
+        
         # 危险域名/IP黑名单
         self.dangerous_hosts = {
             'localhost', '127.0.0.1', '0.0.0.0', '::1',
@@ -22,8 +33,37 @@ class NetworkUtils:
             'metadata.tencentyun.com',
             '100.100.100.200',  # 阿里云
         }
-        # 下载大小限制 (10MB)
-        self.max_download_size = 10 * 1024 * 1024
+        
+        # 从配置获取大小限制，或使用默认值
+        if config and hasattr(config, 'max_image_size_bytes'):
+            self.max_download_size = config.max_image_size_bytes
+        else:
+            self.max_download_size = 10 * 1024 * 1024  # 10MB默认
+    
+    async def _resolve_hostname(self, hostname: str) -> str:
+        """异步解析域名获取IP地址"""
+        try:
+            loop = asyncio.get_running_loop()
+            # 使用getaddrinfo进行DNS解析
+            addrinfo = await loop.getaddrinfo(
+                hostname, None, 
+                family=socket.AF_UNSPEC, 
+                type=socket.SOCK_STREAM
+            )
+            if addrinfo:
+                # 返回第一个解析到的IP地址
+                return addrinfo[0][4][0]
+        except (socket.gaierror, asyncio.CancelledError, Exception) as e:
+            logger.debug(f"DNS解析失败 {hostname}: {e}")
+        return None
+    
+    def _is_private_ip(self, ip_str: str) -> bool:
+        """检查IP是否为私有地址"""
+        try:
+            ip = ipaddress.ip_address(ip_str)
+            return ip.is_private or ip.is_loopback or ip.is_link_local
+        except ValueError:
+            return False
     
     async def get_session(self):
         """获取或创建HTTP会话"""
@@ -31,50 +71,50 @@ class NetworkUtils:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    def _is_safe_url(self, url: str) -> bool:
-        """安全检查：只拦截危险地址，允许公网图片 - 修复SSRF漏洞"""
+    async def _is_safe_url(self, url: str) -> bool:
+        """真正的SSRF防护 - 包含DNS解析检查"""
         try:
             from urllib.parse import urlparse
             parsed = urlparse(url)
             
-            # 检查协议
+            # 基础检查
             if parsed.scheme not in ('http', 'https'):
                 return False
             
-            # 检查主机
             hostname = parsed.hostname
             if not hostname:
                 return False
             
-            # 检查黑名单
-            if hostname in self.dangerous_hosts:
-                return False
+            # 1. 快速字符串检查（黑名单）
+            dangerous_patterns = [
+                'localhost', '127.0.0.1', '0.0.0.0', '::1',
+                '169.254.', 'metadata.', '.internal', '.local',
+                'localhost.', '127.0.0.1.', '192.168.', '10.', '172.16.'
+            ]
             
-            # 检查是否为内网IP
-            import ipaddress
-            try:
-                ip = ipaddress.ip_address(hostname)
-                if ip.is_private or ip.is_loopback:
-                    return False
-            except ValueError:
-                # 不是IP地址，是域名 - 检查危险域名模式
-                dangerous_patterns = [
-                    'localhost', '127.0.0.1', '0.0.0.0', '::1',
-                    '169.254.', 'metadata.',
-                    '.internal', '.local', '.localdomain',
-                ]
-                
-                # 检查精确匹配或后缀匹配
-                for pattern in dangerous_patterns:
-                    if hostname == pattern or hostname.endswith('.' + pattern):
-                        return False
-                
-                # 检查常见的内网域名模式
-                if any(hostname.startswith(prefix) for prefix in ['192.168.', '10.', '172.16.']):
+            # 检查危险域名模式
+            for pattern in dangerous_patterns:
+                if hostname == pattern or hostname.endswith('.' + pattern) or hostname.startswith(pattern):
                     return False
             
-            # ✅ 允许所有公网域名和IP
-            return True
+            # 2. DNS解析检查（核心防护）
+            resolved_ip = await self._resolve_hostname(hostname)
+            if resolved_ip:
+                # 检查解析后的IP是否为私有地址
+                if self._is_private_ip(resolved_ip):
+                    logger.warning(f"域名解析到私有IP: {hostname} -> {resolved_ip}")
+                    return False
+                # 允许公网IP
+                return True
+            
+            # 3. 如果DNS解析失败，但域名看起来是公网域名，可以允许
+            # 检查是否为公网域名格式（包含点，不是纯IP模式）
+            if '.' in hostname and not any(hostname.startswith(p) for p in ['192.168.', '10.', '172.16.']):
+                logger.info(f"允许未解析域名（可能是公网）: {hostname}")
+                return True
+            
+            # 4. 其他情况拒绝
+            return False
             
         except Exception as e:
             logger.warning(f"URL安全检查失败 {url}: {e}")
@@ -96,7 +136,8 @@ class NetworkUtils:
             图片字节数据，失败返回None
         """
         # 添加URL安全检查
-        if not self._is_safe_url(url):
+        is_safe = await self._is_safe_url(url)
+        if not is_safe:
             logger.warning(f"拒绝不安全的URL: {url}")
             return None
         

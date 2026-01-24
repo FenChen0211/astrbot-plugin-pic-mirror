@@ -76,7 +76,11 @@ class PicMirrorPlugin(Star):
                 await self.image_handler.cleanup()
             else:
                 logger.warning("image_handler 未初始化，跳过清理操作")
+        except (AttributeError, RuntimeError, asyncio.CancelledError) as e:
+            logger.error(f"插件卸载时发生异常: {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"插件卸载时发生异常: {e}")
+            # 其他未知异常也记录，但更详细
+            logger.critical(f"插件卸载时发生未知异常: {e}", exc_info=True)
+            raise  # 重新抛出让框架处理
         finally:
             logger.info("图像对称插件正在卸载...")

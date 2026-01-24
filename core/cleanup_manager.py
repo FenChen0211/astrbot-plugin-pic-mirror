@@ -29,8 +29,11 @@ class CleanupManager:
         while not self._stop_event.is_set():
             try:
                 await self._process_cleanup_queue()
+            except (OSError, PermissionError) as e:
+                logger.error(f"清理任务文件操作异常: {e}")
             except Exception as e:
-                logger.error(f"清理任务异常: {e}")
+                logger.error(f"清理任务未知异常: {e}", exc_info=True)
+                await asyncio.sleep(60)  # 异常后等待
 
             # 使用 wait_for 来响应停止信号
             try:
