@@ -288,7 +288,8 @@ class ImageHandler:
             # 更精确的判断：文件在插件数据目录内且是临时文件
             if file_path.parent == self.data_dir:
                 filename = file_path.name.lower()
-                temp_prefixes = ["tmp", "temp", "avatar_", "downloaded_", "base64_"]
+                # 修复前缀匹配：匹配"downloaded"和"downloaded_"等多种前缀
+                temp_prefixes = ["tmp", "temp", "avatar_", "avatar", "downloaded", "downloaded_", "base64", "base64_"]
                 
                 if any(filename.startswith(prefix) for prefix in temp_prefixes):
                     file_path.unlink()

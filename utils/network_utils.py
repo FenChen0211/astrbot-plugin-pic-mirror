@@ -145,15 +145,15 @@ class NetworkUtils:
                     return None
 
                 # 流式读取+大小限制
-                data = b''
+                buffer = bytearray()
                 async for chunk in response.content.iter_chunked(8192):
-                    data += chunk
-                    if len(data) > self.max_download_size:
-                        logger.error(f"图片超过大小限制: {len(data)} bytes")
+                    buffer.extend(chunk)  # ✅ O(1)性能
+                    if len(buffer) > self.max_download_size:
+                        logger.error(f"图片超过大小限制: {len(buffer)} bytes")
                         return None
 
-                logger.info(f"成功下载图片，大小: {len(data)} bytes")
-                return data
+                logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
+                return bytes(buffer)
 
         except asyncio.TimeoutError:
             logger.error(f"下载超时: {url}")

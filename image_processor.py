@@ -223,16 +223,11 @@ class MirrorProcessor:
                 if not MirrorProcessor._check_image_size(img):
                     return False, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
                 
-                # 计算帧数
+                # 一次遍历同时统计和处理帧（性能优化）
                 frame_count = 0
-                for _ in ImageSequence.Iterator(img):
-                    frame_count += 1
-                
-                # 帧数过多时提示
-                if frame_count > 100:
-                    logger.warning(f"处理大型GIF: {frame_count}帧，可能需要较长时间")
-                
                 for frame in ImageSequence.Iterator(img):
+                    frame_count += 1
+                    
                     # 记录每帧持续时间
                     durations.append(frame.info.get("duration", 100))
 
@@ -260,6 +255,10 @@ class MirrorProcessor:
                         )
 
                     frames.append(mirrored_frame)
+                
+                # 帧数过多时提示
+                if frame_count > 100:
+                    logger.warning(f"处理大型GIF: {frame_count}帧，可能需要较长时间")
 
             # 保存GIF
             if len(frames) > 0:
