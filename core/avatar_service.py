@@ -13,24 +13,14 @@ class AvatarService:
         self.network_utils = network_utils
 
     async def get_avatar(self, qq_number: str, size: int = 640) -> Optional[bytes]:
-        """
-        获取QQ用户头像
-
-        Args:
-            qq_number: QQ号码
-            size: 头像尺寸
-
-        Returns:
-            头像图片字节数据
-        """
-        # 使用传入的 network_utils 来获取头像，避免重复实现
+        """获取QQ用户头像 - 优化日志版本"""
         try:
             avatar_data = await self.network_utils.get_qq_avatar(qq_number, size)
             if avatar_data:
-                logger.info(f"成功获取头像: {qq_number}")
+                logger.debug(f"成功获取头像: {qq_number}")  # ✅ 改为debug
                 return avatar_data
             else:
-                logger.error(f"获取头像失败: {qq_number}")
+                logger.warning(f"获取头像失败: {qq_number}")  # ✅ 失败时用warning
                 return None
         except Exception as e:
             logger.error(f"获取头像异常 {qq_number}: {e}")

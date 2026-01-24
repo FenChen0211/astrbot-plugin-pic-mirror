@@ -12,26 +12,19 @@ class MessageUtils:
 
     @staticmethod
     def extract_at_qq(event) -> Optional[str]:
-        """
-        提取消息中@的QQ号
-
-        Args:
-            event: 消息事件
-
-        Returns:
-            QQ号码字符串，如果未找到则返回None
-        """
+        """提取@的QQ号 - 减少日志版本"""
         try:
             messages = event.get_messages()
         except AttributeError:
             messages = event.message_obj.message
-
+        
         for component in messages:
             if isinstance(component, Comp.At):
                 # At组件可能有qq属性
                 if hasattr(component, "qq"):
                     qq_value = component.qq
                     if qq_value:
+                        logger.debug(f"提取到@QQ号: {qq_value}")  # ✅ debug级别
                         return str(qq_value)
 
                 # 或者检查其他可能的属性名
@@ -39,23 +32,16 @@ class MessageUtils:
                     if hasattr(component, attr_name):
                         attr_value = getattr(component, attr_name)
                         if attr_value:
+                            logger.debug(f"提取到@QQ号: {attr_value}")  # ✅ debug级别
                             return str(attr_value)
-
+        
         return None
 
     @staticmethod
     def extract_image_sources(event) -> List[str]:
-        """
-        提取所有图像源
-
-        Args:
-            event: 消息事件
-
-        Returns:
-            图像源列表
-        """
+        """提取图像源 - 减少日志版本"""
         image_sources = []
-
+        
         try:
             messages = event.get_messages()
         except AttributeError:
@@ -67,12 +53,14 @@ class MessageUtils:
                 image_url = MessageUtils._extract_from_image_component(component)
                 if image_url:
                     image_sources.append(image_url)
-
+                    logger.debug(f"提取到图片源: {image_url[:30]}...")  # ✅ debug级别
+                    
             # 处理Reply组件
             elif isinstance(component, Comp.Reply):
                 reply_images = MessageUtils._extract_from_reply_component(component)
                 image_sources.extend(reply_images)
-
+        
+        logger.info(f"找到的图像源数量: {len(image_sources)}")  # ✅ info保留但只记数量
         return image_sources
 
     @staticmethod
@@ -88,12 +76,12 @@ class MessageUtils:
         """
         # 优先检查url属性
         if hasattr(component, "url") and component.url:
-            logger.info(f"从Image组件找到url属性: {component.url[:50]}...")
+            logger.debug(f"从Image组件找到url属性")  # ✅ debug级别
             return component.url
 
         # 其次检查file属性
         if hasattr(component, "file") and component.file:
-            logger.info(f"从Image组件找到file属性: {str(component.file)[:50]}...")
+            logger.debug(f"从Image组件找到file属性")  # ✅ debug级别
 
             # 如果是base64格式
             if isinstance(component.file, str) and component.file.startswith(
@@ -109,13 +97,11 @@ class MessageUtils:
             if hasattr(component, attr_name):
                 attr_value = getattr(component, attr_name)
                 if attr_value:
-                    logger.info(
-                        f"从Image组件找到{attr_name}属性: {str(attr_value)[:50]}..."
-                    )
+                    logger.debug(f"从Image组件找到{attr_name}属性")  # ✅ debug级别
                     if isinstance(attr_value, str):
                         return attr_value
 
-        logger.warning(f"Image组件没有找到有效的URL属性: {component}")
+        logger.debug(f"Image组件没有找到有效的URL属性")  # ✅ debug级别
         return None
 
     @staticmethod
@@ -133,7 +119,7 @@ class MessageUtils:
 
         # 检查chain属性
         if hasattr(component, "chain") and component.chain:
-            logger.info(f"Reply组件有chain属性，长度: {len(component.chain)}")
+            logger.debug(f"Reply组件有chain属性，长度: {len(component.chain)}")  # ✅ debug级别
 
             for reply_component in component.chain:
                 if isinstance(reply_component, Comp.Image):
@@ -145,7 +131,7 @@ class MessageUtils:
 
         # 检查message属性
         elif hasattr(component, "message") and component.message:
-            logger.info(f"Reply组件有message属性")
+            logger.debug(f"Reply组件有message属性")  # ✅ debug级别
 
             for reply_component in component.message:
                 if isinstance(reply_component, Comp.Image):
@@ -160,9 +146,7 @@ class MessageUtils:
             if hasattr(component, attr_name):
                 attr_value = getattr(component, attr_name)
                 if attr_value:
-                    logger.info(
-                        f"Reply组件有{attr_name}属性: {str(attr_value)[:100]}..."
-                    )
+                    logger.debug(f"Reply组件有{attr_name}属性")  # ✅ debug级别
 
         return image_sources
 

@@ -4,7 +4,7 @@
 
 import asyncio
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from astrbot.api import logger
 from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
@@ -172,7 +172,7 @@ class ImageHandler:
             logger.error(f"处理单图像失败: {str(e)}", exc_info=True)
             yield self._get_error_message(event, "处理失败")
 
-    async def _prepare_image_file(self, image_source: str) -> Path:
+    async def _prepare_image_file(self, image_source: str) -> Optional[Path]:
         """准备图像文件"""
         # 如果是URL，下载
         if image_source.startswith(("http://", "https://")):
@@ -186,7 +186,7 @@ class ImageHandler:
         else:
             return self._get_local_file(image_source)
 
-    async def _download_image(self, url: str) -> Path:
+    async def _download_image(self, url: str) -> Optional[Path]:
         """下载图像"""
         logger.info(f"下载网络图片: {url}")
 
@@ -197,35 +197,65 @@ class ImageHandler:
         ext = self.file_utils.get_file_extension(url) or ".jpg"
         return await self._save_temp_file(image_data, "downloaded", ext)
 
-    async def _decode_base64_image(self, base64_data: str) -> Path:
-        """解码base64图像"""
+    async def _decode_base64_image(self, base64_data: str) -> Optional[Path]:
+        """解码base64图像 - 安全版本"""
         try:
+            # 移除base64前缀
             if base64_data.startswith("base64://"):
-                base64_data = base64_data[len("base64://") :]
-
+                base64_data = base64_data[len("base64://"):]
+            
+            # 1. 检查base64字符串长度
+            MAX_BASE64_LENGTH = 20 * 1024 * 1024 * 4 // 3  # 对应20MB原始数据
+            if len(base64_data) > MAX_BASE64_LENGTH:
+                logger.error(f"Base64数据过长: {len(base64_data)}字符")
+                return None
+                
             import base64 as b64
-
+            
+            # 2. 解码
             image_data = b64.b64decode(base64_data)
-
+            
+            # 3. 检查解码后大小
+            max_size = self.config.max_image_size_bytes if self.config else 10 * 1024 * 1024
+            if len(image_data) > max_size:
+                logger.error(f"解码后图像过大: {len(image_data)}字节 > {max_size}字节")
+                return None
+                
+            # 4. 保存
             return await self._save_temp_file(image_data, "base64", ".png")
+            
         except Exception as e:
             logger.error(f"base64解码失败: {e}")
             return None
 
-    def _get_local_file(self, file_path: str) -> Path:
-        """获取本地文件"""
-        path = Path(file_path)
-        if path.exists():
-            return path
-
-        # 尝试相对路径
-        possible_path = self.data_dir / file_path
-        if possible_path.exists():
-            return possible_path
-
+    def _get_local_file(self, file_path: str) -> Optional[Path]:
+        """获取本地文件 - 安全版本"""
+        try:
+            # 只允许相对路径，且必须在data_dir内
+            clean_path = Path(file_path)
+            
+            # 检查是否为相对路径（不允许绝对路径）
+            if clean_path.is_absolute():
+                logger.warning(f"拒绝绝对路径: {file_path}")
+                return None
+                
+            # 构建安全路径
+            safe_path = (self.data_dir / clean_path).resolve()
+            
+            # 验证路径是否在data_dir内
+            data_dir_resolved = self.data_dir.resolve()
+            if data_dir_resolved in safe_path.parents or data_dir_resolved == safe_path:
+                if safe_path.exists():
+                    return safe_path
+            else:
+                logger.warning(f"路径越界: {file_path}")
+                
+        except Exception as e:
+            logger.warning(f"本地路径解析失败 {file_path}: {e}")
+        
         return None
 
-    async def _save_temp_file(self, data: bytes, prefix: str, extension: str) -> Path:
+    async def _save_temp_file(self, data: bytes, prefix: str, extension: str) -> Optional[Path]:
         """保存临时文件"""
         try:
             import tempfile

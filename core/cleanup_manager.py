@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from astrbot.api import logger
+from astrbot.api.star import StarTools
 
 
 class CleanupManager:
@@ -15,6 +16,7 @@ class CleanupManager:
         self.cleanup_queue: List[Dict[str, Any]] = []
         self._cleanup_task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
+        self._queue_lock = asyncio.Lock()  # ✅ 添加锁
 
         if config.enable_auto_cleanup:
             # 修复：避免命名冲突，使用不同的方法名
@@ -36,40 +38,58 @@ class CleanupManager:
                 continue  # 超时，继续下一次清理
 
     async def _process_cleanup_queue(self):
-        """处理清理队列"""
+        """处理清理队列 - 线程安全版本"""
         current_time = time.time()
-
-        for item in self.cleanup_queue[:]:
-            file_path = item.get("path")
-            expiry_time = item.get("expiry_time")
-
-            if not file_path or not expiry_time or not file_path.exists():
-                self.cleanup_queue.remove(item)
-                continue
-
-            if current_time >= expiry_time:
-                try:
-                    file_path.unlink()
-                    logger.info(f"定时清理文件: {file_path.name}")
+        
+        async with self._queue_lock:  # ✅ 加锁
+            items_to_remove = []
+            
+            for item in self.cleanup_queue:
+                file_path = item.get("path")
+                expiry_time = item.get("expiry_time")
+                
+                if not file_path or not expiry_time or not file_path.exists():
+                    items_to_remove.append(item)
+                    continue
+                
+                if current_time >= expiry_time:
+                    try:
+                        file_path.unlink()
+                        logger.info(f"定时清理文件: {file_path.name}")
+                        items_to_remove.append(item)
+                    except Exception as e:
+                        logger.warning(f"清理文件失败 {file_path}: {e}")
+            
+            # 批量移除
+            for item in items_to_remove:
+                if item in self.cleanup_queue:
                     self.cleanup_queue.remove(item)
-                except Exception as e:
-                    logger.warning(f"清理文件失败 {file_path}: {e}")
 
     def schedule_cleanup(self, file_path: Path, keep_hours: int):
-        """安排文件清理"""
+        """安排文件清理 - 安全版本"""
+        # 验证路径是否在插件数据目录内
+        try:
+            plugin_data_dir = StarTools.get_data_dir("astrbot-plugin-pic-mirror")
+            if not str(file_path.resolve()).startswith(str(plugin_data_dir.resolve())):
+                logger.error(f"拒绝清理外部路径: {file_path}")
+                return
+        except:
+            pass
+            
         if keep_hours <= 0:
-            # 立即清理
             asyncio.create_task(self._cleanup_immediately(file_path))
         else:
-            # 延迟清理
             expiry_time = time.time() + (keep_hours * 3600)
-            self.cleanup_queue.append(
-                {
-                    "path": file_path,
-                    "expiry_time": expiry_time,
-                    "scheduled_time": time.time(),
-                }
-            )
+            
+            async def _schedule():
+                async with self._queue_lock:  # ✅ 加锁
+                    self.cleanup_queue.append({
+                        "path": file_path,
+                        "expiry_time": expiry_time,
+                        "scheduled_time": time.time(),
+                    })
+            
+            asyncio.create_task(_schedule())
             logger.info(f"已安排清理 {file_path.name}, {keep_hours}小时后删除")
 
     async def _cleanup_immediately(self, file_path: Path):
