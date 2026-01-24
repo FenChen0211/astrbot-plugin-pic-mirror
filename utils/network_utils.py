@@ -13,6 +13,18 @@ class NetworkUtils:
 
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
+        self.session = None  # 添加session缓存
+    
+    async def get_session(self):
+        """获取或创建HTTP会话"""
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+        return self.session
+    
+    async def cleanup(self):
+        """清理资源，关闭会话"""
+        if self.session and not self.session.closed:
+            await self.session.close()
 
     async def download_image(self, url: str) -> Optional[bytes]:
         """
@@ -25,15 +37,15 @@ class NetworkUtils:
             图片字节数据，失败返回None
         """
         try:
-            async with aiohttp.ClientSession() as client:
-                async with client.get(url, timeout=self.timeout) as response:
-                    if response.status != 200:
-                        logger.error(f"下载失败，状态码: {response.status}")
-                        return None
+            session = await self.get_session()
+            async with session.get(url, timeout=self.timeout) as response:
+                if response.status != 200:
+                    logger.error(f"下载失败，状态码: {response.status}")
+                    return None
 
-                    content = await response.read()
-                    logger.info(f"成功下载图片，大小: {len(content)} bytes")
-                    return content
+                content = await response.read()
+                logger.info(f"成功下载图片，大小: {len(content)} bytes")
+                return content
 
         except asyncio.TimeoutError:
             logger.error(f"下载超时: {url}")
@@ -90,23 +102,23 @@ class NetworkUtils:
         Returns:
             下载的数据
         """
+        session = await self.get_session()
         for attempt in range(retries + 1):
             try:
-                async with aiohttp.ClientSession() as client:
-                    # 设置超时和headers
-                    timeout = aiohttp.ClientTimeout(total=10)
-                    headers = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    }
+                # 设置超时和headers
+                timeout = aiohttp.ClientTimeout(total=10)
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
 
-                    async with client.get(
-                        url, timeout=timeout, headers=headers
-                    ) as response:
-                        if response.status == 200:
-                            return await response.read()
-                        elif response.status == 404:
-                            # 404不需要重试
-                            return None
+                async with session.get(
+                    url, timeout=timeout, headers=headers
+                ) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    elif response.status == 404:
+                        # 404不需要重试
+                        return None
             except Exception as e:
                 if attempt == retries:
                     logger.debug(f"下载失败 {url} (尝试{attempt + 1}次): {e}")
@@ -125,8 +137,8 @@ class NetworkUtils:
             bool: 是否有效
         """
         try:
-            async with aiohttp.ClientSession() as client:
-                async with client.head(url, timeout=5) as response:
-                    return response.status == 200
+            session = await self.get_session()
+            async with session.head(url, timeout=5) as response:
+                return response.status == 200
         except Exception:
             return False

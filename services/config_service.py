@@ -22,30 +22,14 @@ class ConfigService:
         self._config_dict = config_dict
 
     def _load_config(self) -> PluginConfig:
-        """加载插件配置 - 使用旧版逻辑"""
+        """简化版本 - 只用标准方式"""
         try:
-            # 方法1：首先尝试通过 get_plugin_config 获取
-            if hasattr(self.plugin, 'get_plugin_config'):
-                try:
-                    config_dict = self.plugin.get_plugin_config()
-                    logger.info("通过 get_plugin_config() 获取配置")
-                    return PluginConfig.load_from_dict(config_dict)
-                except Exception as e:
-                    logger.debug(f"get_plugin_config 失败: {e}")
-            
-            # 方法2：尝试从 context 获取
+            # 直接使用context.config
             if hasattr(self.plugin, 'context') and hasattr(self.plugin.context, 'config'):
-                try:
-                    config_dict = self.plugin.context.config
-                    logger.info("通过 context.config 获取配置")
-                    return PluginConfig.load_from_dict(config_dict)
-                except Exception as e:
-                    logger.debug(f"context.config 失败: {e}")
-            
-            # 方法3：使用空配置（默认值）
-            logger.info("使用默认配置")
+                config_dict = self.plugin.context.config
+                return PluginConfig.load_from_dict(config_dict)
+            # 否则返回默认
             return PluginConfig()
-                
         except Exception as e:
             logger.error(f"配置加载失败，使用默认配置: {e}")
             return PluginConfig()
@@ -87,7 +71,7 @@ class ConfigService:
 @用户 并发送: 右对称
 图片 + 右对称"""
         else:
-            return f"""📷 图像对称插件使用说明 v1.1.0
+            return f"""📷 图像对称插件使用说明 v1.1.1
 
 当前配置:
 • 图像大小限制: {config.image_size_limit_mb}MB

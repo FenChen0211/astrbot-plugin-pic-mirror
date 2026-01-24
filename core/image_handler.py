@@ -28,18 +28,13 @@ except ImportError:
 
 class ImageHandler:
     """图像处理器"""
+    
+    # 插件名称常量，避免硬编码
+    PLUGIN_NAME = "astrbot-plugin-pic-mirror"
 
     def __init__(self, config_service):
         self.config_service = config_service
-        
-        # 确保配置已加载
-        if hasattr(config_service, 'config_obj'):
-            self.config = config_service.config_obj
-        elif hasattr(config_service, 'config'):
-            self.config = config_service.config
-        else:
-            # 如果都没有，手动触发加载
-            self.config = config_service.config_obj  # 这会触发@property加载
+        self.config = config_service.config  # ✅ 直接使用
 
         # 初始化组件
         self.network_utils = NetworkUtils(timeout=self.config.processing_timeout)
@@ -49,7 +44,7 @@ class ImageHandler:
         self.cleanup_manager = CleanupManager(self.config)
 
         # 数据目录
-        self.data_dir = StarTools.get_data_dir("astrbot-plugin-pic-mirror")
+        self.data_dir = StarTools.get_data_dir(self.PLUGIN_NAME)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     async def process_mirror(self, event, mode: str):
@@ -295,14 +290,12 @@ class ImageHandler:
             return event.plain_result(f"❌ {message}")
 
     async def cleanup(self):
-        """清理资源"""
-        # 清理清理管理器（停止后台任务）
         await self.cleanup_manager.cleanup_all()
         
-        # 关闭网络工具的连接池（如果有相关方法）
-        # 注意：NetworkUtils 当前没有显式的关闭方法，但如果有需要可以在这里添加
+        # 关闭网络连接
+        if hasattr(self.network_utils, 'cleanup'):
+            await self.network_utils.cleanup()
         
-        # 清理其他资源
         self.network_utils = None
         self.message_utils = None
         self.file_utils = None

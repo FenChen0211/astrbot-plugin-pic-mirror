@@ -24,7 +24,7 @@ class PicMirrorPlugin(Star):
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
 
     # 独立指令定义
-    @filter.command("左对称", alias={"mirror left", "left", "左对称", "左右对称"})
+    @filter.command("左对称", alias={"mirror left", "left", "左右对称"})
     async def mirror_left(self, event: AstrMessageEvent):
         """左半边图像对称到右边"""
         if self.image_handler is None:
@@ -35,7 +35,7 @@ class PicMirrorPlugin(Star):
         async for result in self.image_handler.process_mirror(event, "left_to_right"):
             yield result
 
-    @filter.command("右对称", alias={"mirror right", "right", "右对称", "右左对称"})
+    @filter.command("右对称", alias={"mirror right", "right", "右左对称"})
     async def mirror_right(self, event: AstrMessageEvent):
         """右半边图像对称到左边"""
         if self.image_handler is None:
@@ -46,7 +46,7 @@ class PicMirrorPlugin(Star):
         async for result in self.image_handler.process_mirror(event, "right_to_left"):
             yield result
 
-    @filter.command("上对称", alias={"mirror top", "top", "上对称", "上下对称"})
+    @filter.command("上对称", alias={"mirror top", "top", "上下对称"})
     async def mirror_top(self, event: AstrMessageEvent):
         """上半边图像对称到下面"""
         if self.image_handler is None:
@@ -57,7 +57,7 @@ class PicMirrorPlugin(Star):
         async for result in self.image_handler.process_mirror(event, "top_to_bottom"):
             yield result
 
-    @filter.command("下对称", alias={"mirror bottom", "bottom", "下对称", "下上对称"})
+    @filter.command("下对称", alias={"mirror bottom", "bottom", "下上对称"})
     async def mirror_bottom(self, event: AstrMessageEvent):
         """下半边图像对称到上面"""
         if self.image_handler is None:
