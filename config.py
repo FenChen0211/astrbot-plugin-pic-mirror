@@ -55,7 +55,7 @@ class PluginConfig:
             return cls()
 
         try:
-            return cls(
+            config = cls(
                 image_size_limit_mb=config_dict.get("image_size_limit_mb", 10),
                 gif_size_limit_mb=config_dict.get("gif_size_limit_mb", 15),
                 processing_timeout=config_dict.get("processing_timeout", 30),
@@ -67,8 +67,27 @@ class PluginConfig:
                 keep_files_hours=config_dict.get("keep_files_hours", 1),
                 enable_at_avatar=config_dict.get("enable_at_avatar", True),
             )
+            config.validate()
+            return config
         except Exception as e:
             # 配置解析失败时使用默认值
             # 重要：使用框架的logger，而不是print
-            logger.error(f"配置解析失败，使用默认配置: {e}")
+            logger.error(f"配置解析失败，使用默认配置: {e}", exc_info=True)
             return cls()
+
+    def validate(self):
+        """
+        验证配置值是否在有效范围内
+        如果配置无效则抛出 ValueError
+        """
+        if not (1 <= self.image_size_limit_mb <= 100):
+            raise ValueError("image_size_limit_mb must be between 1-100 MB")
+        if not (1 <= self.gif_size_limit_mb <= 200):
+            raise ValueError("gif_size_limit_mb must be between 1-200 MB")
+        if not (5 <= self.processing_timeout <= 300):
+            raise ValueError("processing_timeout must be between 5-300 seconds")
+        if not (1 <= self.output_quality <= 100):
+            raise ValueError("output_quality must be between 1-100")
+        if self.keep_files_hours < 0:
+            raise ValueError("keep_files_hours cannot be negative")
+        # 布尔值不需要验证

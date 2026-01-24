@@ -91,9 +91,15 @@ class FileUtils:
         Returns:
             str: 生成的文件名
         """
-        # 创建哈希值确保唯一性
-        hash_input = f"{original_url}_{mode}"
-        file_hash = hashlib.md5(hash_input.encode()).hexdigest()[:8]
+        # 创建哈希值确保唯一性 (SHA256 + 时间戳 + 随机令牌)
+        import secrets
+        import time
+        
+        timestamp = int(time.time())
+        random_token = secrets.token_hex(4)  # 8位十六进制随机数
+        
+        hash_input = f"{original_url}_{mode}_{timestamp}_{random_token}"
+        file_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:12]
 
         # 尝试从原始URL获取扩展名
         ext = FileUtils.get_file_extension(original_url)
@@ -189,10 +195,12 @@ class FileUtils:
                             for keyword in ["tmp", "avatar", "downloaded"]
                         ):
                             file_path.unlink()
-                    except:
-                        pass
+                    except (OSError, PermissionError) as e:
+                        # 文件可能正在使用，忽略
+                        logger.debug(f"无法删除临时文件 {file_path.name}: {e}")
         except Exception as e:
-            pass
+            # 清理临时文件时出错，忽略但记录
+            logger.debug(f"清理临时文件时出错: {e}")
 
     @staticmethod
     def detect_image_format_by_magic(data: bytes) -> Optional[str]:

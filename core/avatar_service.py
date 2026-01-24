@@ -23,5 +23,5 @@ class AvatarService:
                 logger.warning(f"获取头像失败: {qq_number}")  # ✅ 失败时用warning
                 return None
         except Exception as e:
-            logger.error(f"获取头像异常 {qq_number}: {e}")
+            logger.error(f"获取头像异常 {qq_number}: {e}", exc_info=True)
             return None

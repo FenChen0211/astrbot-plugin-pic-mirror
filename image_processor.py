@@ -8,11 +8,6 @@ from pathlib import Path
 from typing import Tuple, Optional
 from PIL import Image, ImageSequence
 
-try:
-    from .constants import PLUGIN_NAME
-except ImportError:
-    from .constants import PLUGIN_NAME
-
 # 注意：PIL全局设置已移除，避免影响其他插件
 
 # 统一使用相对导入
@@ -52,7 +47,6 @@ class MirrorProcessor:
         input_path: str,
         output_path: str,
         mode: str,
-        plugin_name: str = PLUGIN_NAME,
         config: Optional[PluginConfig] = None,
     ) -> Tuple[bool, str]:
         """
@@ -62,7 +56,6 @@ class MirrorProcessor:
             input_path: 输入图像路径
             output_path: 输出图像路径
             mode: 对称模式
-            plugin_name: 插件名称（用于数据目录）
             config: 插件配置
 
         Returns:
@@ -146,12 +139,12 @@ class MirrorProcessor:
 
                 # 将保存操作放到线程池中执行
                 def save_image():
-                    if input_path.lower().endswith(".png"):
+                    # 根据输出路径扩展名判断保存格式，避免使用输入路径判断
+                    output_ext = Path(output_path).suffix.lower()
+                    if output_ext == ".png":
                         mirrored.save(output_path, optimize=True)
-                    elif input_path.lower().endswith(".webp"):
-                        mirrored.save(
-                            output_path, quality=quality, method=6
-                        )  # method=6为默认平衡模式
+                    elif output_ext == ".webp":
+                        mirrored.save(output_path, quality=quality, method=6)
                     else:
                         mirrored.save(output_path, quality=quality, optimize=True)
 
@@ -181,8 +174,9 @@ class MirrorProcessor:
                     alpha = image.getchannel("A")
                     if alpha.getextrema() == (255, 255):  # 完全不透明
                         image = image.convert("RGB")
-                except:
-                    pass
+                except Exception as e:
+                    # 图像可能没有alpha通道，忽略
+                    logger.debug(f"无法获取alpha通道或检查透明度: {e}")
 
             # 如果是大图像，可以适当缩小尺寸
             width, height = image.size
@@ -195,8 +189,9 @@ class MirrorProcessor:
                 image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
             return image
-        except Exception:
+        except Exception as e:
             # 压缩失败时返回原图
+            logger.debug(f"图像压缩失败，返回原图: {e}")
             return image
 
     @staticmethod
@@ -296,32 +291,55 @@ class MirrorProcessor:
         result = Image.new(image.mode, (width, height))
 
         if mode == "left_to_right":
-            # 左半边对称到右边
-            left_half = image.crop((0, 0, width // 2, height))
+            # 左半边对称到右边（处理奇数宽度）
+            half_width = (width + 1) // 2
+            other_half = width - half_width
+            left_half = image.crop((0, 0, half_width, height))
             right_half = left_half.transpose(Image.FLIP_LEFT_RIGHT)
             result.paste(left_half, (0, 0))
-            result.paste(right_half, (width // 2, 0))
+            # 只粘贴右侧需要的列数（防止越界）
+            if other_half > 0:
+                right_piece = right_half.crop(
+                    (right_half.width - other_half, 0, right_half.width, height)
+                )
+                result.paste(right_piece, (half_width, 0))
 
         elif mode == "right_to_left":
-            # 右半边对称到左边
-            right_half = image.crop((width // 2, 0, width, height))
+            # 右半边对称到左边（处理奇数宽度）
+            half_width = (width + 1) // 2
+            other_half = width - half_width
+            # 右侧包含上取整的一半（确保中间像素被正确处理）
+            right_half = image.crop((other_half, 0, width, height))
             left_half = right_half.transpose(Image.FLIP_LEFT_RIGHT)
-            result.paste(left_half, (0, 0))
-            result.paste(right_half, (width // 2, 0))
+            # 只粘贴左侧需要的列数
+            if other_half > 0:
+                left_piece = left_half.crop((0, 0, other_half, height))
+                result.paste(left_piece, (0, 0))
+            result.paste(right_half, (other_half, 0))
 
         elif mode == "top_to_bottom":
-            # 上半边对称到下面
-            top_half = image.crop((0, 0, width, height // 2))
+            # 上半边对称到下面（处理奇数高度）
+            half_height = (height + 1) // 2
+            other_half = height - half_height
+            top_half = image.crop((0, 0, width, half_height))
             bottom_half = top_half.transpose(Image.FLIP_TOP_BOTTOM)
             result.paste(top_half, (0, 0))
-            result.paste(bottom_half, (0, height // 2))
+            if other_half > 0:
+                bottom_piece = bottom_half.crop(
+                    (0, bottom_half.height - other_half, width, bottom_half.height)
+                )
+                result.paste(bottom_piece, (0, half_height))
 
         elif mode == "bottom_to_top":
-            # 下半边对称到上面
-            bottom_half = image.crop((0, height // 2, width, height))
+            # 下半边对称到上面（处理奇数高度）
+            half_height = (height + 1) // 2
+            other_half = height - half_height
+            bottom_half = image.crop((0, other_half, width, height))
             top_half = bottom_half.transpose(Image.FLIP_TOP_BOTTOM)
-            result.paste(top_half, (0, 0))
-            result.paste(bottom_half, (0, height // 2))
+            if other_half > 0:
+                top_piece = top_half.crop((0, 0, width, other_half))
+                result.paste(top_piece, (0, 0))
+            result.paste(bottom_half, (0, other_half))
 
         else:
             # 默认不处理

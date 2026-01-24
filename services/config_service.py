@@ -3,23 +3,23 @@
 """
 
 from typing import Dict, Any
-from pathlib import Path  # ✅ 添加这行
 from astrbot.api import logger
 
 try:
-    from ..constants import PLUGIN_NAME
+    from ..constants import PLUGIN_NAME, PLUGIN_VERSION
 except ImportError:
     from ..constants import PLUGIN_NAME
 
 # 统一使用相对导入
 from ..config import PluginConfig
+from ..constants import _load_version
 
 
 class ConfigService:
     """配置服务类"""
 
-    # 类常量
-    PLUGIN_VERSION = "1.2.0"  # 集中管理版本号
+    # 从 constants.py 加载版本号
+    PLUGIN_VERSION = _load_version()
 
     def __init__(self, plugin_instance, config_dict=None):
         self.plugin = plugin_instance
@@ -39,7 +39,7 @@ class ConfigService:
             # 否则返回默认
             return PluginConfig()
         except Exception as e:
-            logger.error(f"配置加载失败，使用默认配置: {e}")
+            logger.error(f"配置加载失败，使用默认配置: {e}", exc_info=True)
             return PluginConfig()
 
     def get_config_summary(self) -> str:
@@ -79,20 +79,6 @@ class ConfigService:
 @用户 并发送: 右对称
 图片 + 右对称"""
         else:
-            # 从metadata.yaml读取版本号
-            try:
-                import yaml
-
-                metadata_path = Path(__file__).parent.parent / "metadata.yaml"
-                if metadata_path.exists():
-                    with open(metadata_path, "r", encoding="utf-8") as f:
-                        metadata = yaml.safe_load(f)
-                        version = metadata.get("version", "1.2.0")
-                else:
-                    version = "1.2.0"
-            except Exception:
-                version = "1.2.0"
-
             return f"""📷 图像对称插件使用说明 v{self.PLUGIN_VERSION}
 
 当前配置:

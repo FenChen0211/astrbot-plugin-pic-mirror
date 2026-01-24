@@ -27,8 +27,6 @@ class ImageHandler:
     """图像处理器"""
 
     def __init__(self, config_service, plugin_name: str = None):
-        self.PLUGIN_NAME = plugin_name or PLUGIN_NAME
-
         self.config_service = config_service
         self.config = config_service.config  # ✅ 直接使用
 
@@ -38,10 +36,11 @@ class ImageHandler:
         self.file_utils = FileUtils()
         self.avatar_service = AvatarService(self.network_utils)
         # 传递插件名给CleanupManager
-        self.cleanup_manager = CleanupManager(self.config, self.PLUGIN_NAME)
+        self.plugin_name = plugin_name or PLUGIN_NAME
+        self.cleanup_manager = CleanupManager(self.config, self.plugin_name)
 
         # 数据目录
-        self.data_dir = StarTools.get_data_dir(self.PLUGIN_NAME)
+        self.data_dir = StarTools.get_data_dir(self.plugin_name)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     async def initialize(self):
@@ -99,7 +98,6 @@ class ImageHandler:
                     ):
                         yield result
                         processed = True
-                        break
 
                 except Exception as e:
                     logger.error(
@@ -153,7 +151,6 @@ class ImageHandler:
                 str(input_path),
                 str(output_path),
                 mode,
-                self.PLUGIN_NAME,
                 self.config,
             )
 
@@ -234,8 +231,9 @@ class ImageHandler:
                 logger.error(f"解码后图像过大: {len(image_data)}字节 > {max_size}字节")
                 return None
 
-            # 4. 保存
-            return await self._save_temp_file(image_data, "base64", ".png")
+            # 4. 保存：根据魔数检测扩展名（回退为 .png）
+            ext = self.file_utils.detect_image_format_by_magic(image_data) or ".png"
+            return await self._save_temp_file(image_data, "base64", ext)
 
         except Exception as e:
             logger.error(f"base64解码失败: {e}")
