@@ -39,6 +39,15 @@ class ImageHandler:
         self.data_dir = StarTools.get_data_dir(self.PLUGIN_NAME)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
+    async def initialize(self):
+        """异步初始化清理管理器"""
+        try:
+            await self.cleanup_manager.start()
+            logger.info("清理管理器已启动")
+        except Exception as e:
+            logger.error(f"清理管理器启动失败: {e}", exc_info=True)
+            # 即使启动失败，插件仍可运行，只是没有定时清理
+
     async def process_mirror(self, event, mode: str):
         """
         处理图像对称请求

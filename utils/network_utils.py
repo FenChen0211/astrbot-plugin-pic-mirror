@@ -92,24 +92,25 @@ class NetworkUtils:
                 if hostname == pattern or hostname.endswith('.' + pattern) or hostname.startswith(pattern):
                     return False
             
-            # 2. DNS解析检查（核心防护）
+            # 2. DNS解析检查
             resolved_ip = await self._resolve_hostname(hostname)
-            if resolved_ip:
-                # 检查解析后的IP是否为私有地址
-                if self._is_private_ip(resolved_ip):
-                    logger.warning(f"域名解析到私有IP: {hostname} -> {resolved_ip}")
-                    return False
-                # 允许公网IP
-                return True
             
-            # 3. 如果DNS解析失败，但域名看起来是公网域名，可以允许
-            # 检查是否为公网域名格式（包含点，不是纯IP模式）
-            if '.' in hostname and not any(hostname.startswith(p) for p in ['192.168.', '10.', '172.16.']):
-                logger.info(f"允许未解析域名（可能是公网）: {hostname}")
-                return True
+            # ❌ 修改前（危险）：
+            # if '.' in hostname and not any(hostname.startswith(p) for p in ['192.168.', '10.', '172.16.']):
+            #     logger.info(f"允许未解析域名（可能是公网）: {hostname}")
+            #     return True
             
-            # 4. 其他情况拒绝
-            return False
+            # ✅ 修改后（安全）：
+            if not resolved_ip:
+                logger.warning(f"DNS解析失败，拒绝访问: {hostname}")
+                return False  # 解析失败就拒绝！
+            
+            # IP地址检查
+            if self._is_private_ip(resolved_ip):
+                logger.warning(f"域名解析到私有IP: {hostname} -> {resolved_ip}")
+                return False
+            
+            return True
             
         except Exception as e:
             logger.warning(f"URL安全检查失败 {url}: {e}")

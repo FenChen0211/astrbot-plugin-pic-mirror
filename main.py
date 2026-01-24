@@ -5,6 +5,7 @@
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
+import asyncio
 
 from .services.config_service import ConfigService
 from .core.image_handler import ImageHandler
@@ -68,6 +69,15 @@ class PicMirrorPlugin(Star):
             
         help_text = self.config_service.get_help_text()
         yield event.plain_result(help_text)
+
+    async def initialize(self):
+        """插件异步初始化"""
+        try:
+            if hasattr(self, 'image_handler') and self.image_handler:
+                await self.image_handler.initialize()
+            logger.info("图像对称插件初始化完成")
+        except Exception as e:
+            logger.error(f"插件初始化失败: {e}", exc_info=True)
 
     async def terminate(self):
         """插件卸载时调用"""
