@@ -4,15 +4,55 @@
 
 import aiohttp
 import asyncio
-import socket  # ✅ 添加这行
-import ipaddress  # ✅ 添加这行
-from typing import Optional
+import socket
+import ipaddress
+from typing import Dict, Optional
 from astrbot.api import logger
 
 try:
     from ..constants import PLUGIN_NAME
 except ImportError:
     from ..constants import PLUGIN_NAME
+
+
+class FixedDNSResolver:
+    """固定DNS解析器，防止DNS重绑定攻击"""
+
+    def __init__(self, safe_resolutions: Dict[str, str]):
+        """
+        初始化固定DNS解析器
+
+        Args:
+            safe_resolutions: 字典，域名 -> 安全IP的映射
+        """
+        self._safe_resolutions = safe_resolutions
+        self._resolver = aiohttp.resolver.DefaultResolver()
+
+    async def resolve(self, hostname: str, port=0, family=socket.AF_INET):
+        """
+        解析主机名，返回预先验证的安全IP
+
+        Args:
+            hostname: 要解析的域名
+            port: 端口
+            family: 地址族
+
+        Returns:
+            解析结果列表
+        """
+        if hostname in self._safe_resolutions:
+            # 返回预先验证的安全IP
+            safe_ip = self._safe_resolutions[hostname]
+            return [{
+                'hostname': hostname,
+                'host': safe_ip,
+                'port': port,
+                'family': family,
+                'proto': socket.IPPROTO_TCP,
+                'flags': socket.AI_NUMERICHOST
+            }]
+        # 其他域名使用默认解析器
+        return await self._resolver.resolve(hostname, port, family)
 
 
 class NetworkUtils:
@@ -168,7 +208,10 @@ class NetworkUtils:
 
     async def download_image(self, url: str) -> Optional[bytes]:
         """
-        下载图片（防DNS Rebinding版本）
+        下载图片（防DNS Rebinding版本 - 使用固定DNS解析器解决SSL证书问题）
+
+        通过自定义DNS解析器将域名固定解析到预先验证的安全IP，
+        保持原始URL进行连接，避免HTTPS证书验证失败。
 
         Args:
             url: 图片URL
@@ -184,24 +227,28 @@ class NetworkUtils:
 
         safe_ip, hostname = safe_info
 
-        # 2. 使用固定安全IP连接（防止DNS Rebinding）
+        # 2. 使用自定义DNS解析器（保持原始URL，避免SSL证书问题）
         try:
-            parsed = aiohttp.URL(url)
-            # 将URL中的主机名替换为安全IP（但保留原始主机信息）
-            ip_url = str(parsed.with_host(safe_ip))
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
 
+            # 创建固定DNS解析器，强制域名解析到安全IP
+            resolver = FixedDNSResolver({hostname: safe_ip})
+
+            # 使用自定义解析器的连接器
             connector = aiohttp.TCPConnector(
+                resolver=resolver,
                 limit_per_host=3,
                 ttl_dns_cache=300,
             )
 
-            headers = {"Host": hostname}
-
             timeout = aiohttp.ClientTimeout(total=self.timeout)
+
             async with aiohttp.ClientSession(
                 connector=connector, timeout=timeout
             ) as session:
-                async with session.get(ip_url, headers=headers) as response:
+                # 使用原始URL（域名），DNS解析被FixedDNSResolver控制
+                async with session.get(url) as response:
                     if response.status != 200:
                         logger.error(f"下载失败，状态码: {response.status}")
                         return None

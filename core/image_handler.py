@@ -192,14 +192,19 @@ class ImageHandler:
             return self._get_local_file(image_source)
 
     async def _download_image(self, url: str) -> Optional[Path]:
-        """下载图像"""
+        """下载图像并正确识别格式"""
         logger.info(f"下载网络图片: {url}")
 
         image_data = await self.network_utils.download_image(url)
         if not image_data:
             return None
 
-        ext = self.file_utils.get_file_extension(url) or ".jpg"
+        # 优先使用魔数检测，回退到URL扩展名
+        ext = self.file_utils.detect_image_format_by_magic(image_data)
+        if not ext:
+            # 魔数检测失败时使用URL扩展名
+            ext = self.file_utils.get_file_extension(url) or ".jpg"
+
         return await self._save_temp_file(image_data, "downloaded", ext)
 
     async def _decode_base64_image(self, base64_data: str, data_hash: str = None) -> Optional[Path]:

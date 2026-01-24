@@ -213,19 +213,26 @@ class FileUtils:
     @staticmethod
     def detect_image_format_by_magic(data: bytes) -> Optional[str]:
         """
-        通过魔数检测图像格式
+        通过魔数检测图像格式（增强版）
 
         Args:
             data: 图像数据
 
         Returns:
-            扩展名，如 '.jpg', '.png', '.gif'
+            扩展名，如 '.jpg', '.png', '.gif', '.webp', '.bmp'
         """
         if len(data) < 12:
             return None
 
-        # GIF: GIF87a or GIF89a
+        # GIF: GIF87a or GIF89a（增强版：检测动画GIF）
         if data[:6] in [b"GIF87a", b"GIF89a"]:
+            # 检查是否是动画GIF
+            if len(data) > 13:
+                # 检查是否有多个图像块（0x2C表示图像描述符）
+                # 动态GIF通常包含多个图像帧
+                image_descriptor_count = data.count(b'\x2C')
+                if image_descriptor_count > 1:
+                    logger.debug(f"检测到动态GIF，包含 {image_descriptor_count} 帧")
             return ".gif"
 
         # PNG: \x89PNG\r\n\x1a\n
@@ -247,5 +254,17 @@ class FileUtils:
         # BMP: BM
         if data[:2] == b"BM":
             return ".bmp"
+
+        # AVIF: ftypavif 或 ftypavis（AV1 Image File Format）
+        if len(data) > 12 and data[4:8] == b"ftyp" and data[8:12] in [b"avif", b"avis"]:
+            return ".avif"
+
+        # ICO: 00000100（16x16）或 00000102（256x256，PNG格式）
+        if data[:4] in [b"\x00\x00\x01\x00", b"\x00\x00\x02\x00"]:
+            return ".ico"
+
+        # TIFF: II（Intel）或 MM（Motorola）
+        if data[:4] in [b"II\x00\x2a", b"MM\x00\x2a"]:
+            return ".tiff"
 
         return None
