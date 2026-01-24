@@ -74,6 +74,11 @@ class PicMirrorPlugin(Star):
         help_text = self.config_service.get_help_text()
         yield event.plain_result(help_text)
 
+    @filter.on_astrbot_loaded
+    async def on_loaded(self):
+        """Bot加载完成时自动调用初始化"""
+        await self.initialize()
+
     async def initialize(self):
         """插件异步初始化"""
         try:

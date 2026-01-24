@@ -176,14 +176,16 @@ class ImageHandler:
             yield self._get_error_message(event, "处理失败")
 
     async def _prepare_image_file(self, image_source: str) -> Optional[Path]:
-        """准备图像文件"""
+        """准备图像文件 - 优化版"""
         # 如果是URL，下载
         if image_source.startswith(("http://", "https://")):
             return await self._download_image(image_source)
 
-        # 如果是base64，解码
+        # 如果是base64，提前计算摘要传递
         elif image_source.startswith("base64://"):
-            return await self._decode_base64_image(image_source)
+            import hashlib
+            source_hash = hashlib.md5(image_source.encode()).hexdigest()[:16]
+            return await self._decode_base64_image(image_source, source_hash)
 
         # 本地文件
         else:
@@ -200,8 +202,8 @@ class ImageHandler:
         ext = self.file_utils.get_file_extension(url) or ".jpg"
         return await self._save_temp_file(image_data, "downloaded", ext)
 
-    async def _decode_base64_image(self, base64_data: str) -> Optional[Path]:
-        """解码base64图像 - 安全版本，使用线程池避免阻塞"""
+    async def _decode_base64_image(self, base64_data: str, data_hash: str = None) -> Optional[Path]:
+        """解码base64图像 - 优化版，使用预计算摘要"""
         try:
             # 移除base64前缀
             if base64_data.startswith("base64://"):
@@ -231,9 +233,10 @@ class ImageHandler:
                 logger.error(f"解码后图像过大: {len(image_data)}字节 > {max_size}字节")
                 return None
 
-            # 4. 保存：根据魔数检测扩展名（回退为 .png）
+            # 4. 保存：使用预计算的数据hash而不是完整base64字符串
+            source_info = data_hash if data_hash else f"base64_{len(base64_data)}"
             ext = self.file_utils.detect_image_format_by_magic(image_data) or ".png"
-            return await self._save_temp_file(image_data, "base64", ext)
+            return await self._save_temp_file(image_data, source_info, ext)
 
         except Exception as e:
             logger.error(f"base64解码失败: {e}")

@@ -67,6 +67,58 @@ class NetworkUtils:
         except ValueError:
             return False
 
+    async def _is_safe_url_with_ip(self, url: str) -> Optional[tuple]:
+        """
+        安全URL检查 + DNS解析，返回安全IP和主机名
+
+        Args:
+            url: 完整URL
+
+        Returns:
+            (安全IP, 主机名) 或 None（如果不安全）
+        """
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+
+            # 基础检查
+            if parsed.scheme not in ("http", "https"):
+                return None
+
+            hostname = parsed.hostname
+            if not hostname:
+                return None
+
+            # 1. 快速字符串检查（黑名单）
+            for pattern in self.DANGEROUS_PATTERNS:
+                clean_pattern = pattern[1:] if pattern.startswith(".") else pattern
+                if (
+                    hostname == pattern
+                    or hostname.endswith("." + clean_pattern)
+                    or hostname.startswith(pattern)
+                ):
+                    return None
+
+            # 2. DNS解析并验证IP
+            resolved_ip = await self._resolve_hostname(hostname)
+
+            if not resolved_ip:
+                logger.warning(f"DNS解析失败，拒绝访问: {hostname}")
+                return None
+
+            # IP地址检查
+            if self._is_private_ip(resolved_ip):
+                logger.warning(f"域名解析到私有IP: {hostname} -> {resolved_ip}")
+                return None
+
+            # 返回安全IP和主机名
+            return (resolved_ip, hostname)
+
+        except Exception as e:
+            logger.warning(f"URL安全检查失败 {url}: {e}")
+            return None
+
     async def get_session(self):
         """获取或创建HTTP会话"""
         if self.session is None or self.session.closed:
@@ -99,29 +151,15 @@ class NetworkUtils:
                 ):
                     return False
 
-            # 2. DNS解析检查
-            resolved_ip = await self._resolve_hostname(hostname)
-
-            # ❌ 修改前（危险）：
-            # if '.' in hostname and not any(hostname.startswith(p) for p in ['192.168.', '10.', '172.16.']):
-            #     logger.info(f"允许未解析域名（可能是公网）: {hostname}")
-            #     return True
-
-            # ✅ 修改后（安全）：
-            if not resolved_ip:
-                logger.warning(f"DNS解析失败，拒绝访问: {hostname}")
-                return False  # 解析失败就拒绝！
-
-            # IP地址检查
-            if self._is_private_ip(resolved_ip):
-                logger.warning(f"域名解析到私有IP: {hostname} -> {resolved_ip}")
+            # 2. DNS解析检查（返回带IP的安全检查）
+            safe_info = await self._is_safe_url_with_ip(url)
+            if not safe_info:
                 return False
 
             return True
-
         except Exception as e:
             logger.warning(f"URL安全检查失败 {url}: {e}")
-            return False  # 有疑问就拒绝
+            return False
 
     async def cleanup(self):
         """清理资源，关闭会话"""
@@ -130,7 +168,7 @@ class NetworkUtils:
 
     async def download_image(self, url: str) -> Optional[bytes]:
         """
-        下载图片
+        下载图片（防DNS Rebinding版本）
 
         Args:
             url: 图片URL
@@ -138,29 +176,46 @@ class NetworkUtils:
         Returns:
             图片字节数据，失败返回None
         """
-        # 添加URL安全检查
-        is_safe = await self._is_safe_url(url)
-        if not is_safe:
+        # 1. 安全检查 + DNS解析（获取固定安全IP）
+        safe_info = await self._is_safe_url_with_ip(url)
+        if not safe_info:
             logger.warning(f"拒绝不安全的URL: {url}")
             return None
 
-        try:
-            session = await self.get_session()
-            async with session.get(url, timeout=self.timeout) as response:
-                if response.status != 200:
-                    logger.error(f"下载失败，状态码: {response.status}")
-                    return None
+        safe_ip, hostname = safe_info
 
-                # 流式读取+大小限制
-                buffer = bytearray()
-                async for chunk in response.content.iter_chunked(8192):
-                    buffer.extend(chunk)  # ✅ O(1)性能
-                    if len(buffer) > self.max_download_size:
-                        logger.error(f"图片超过大小限制: {len(buffer)} bytes")
+        # 2. 使用固定安全IP连接（防止DNS Rebinding）
+        try:
+            parsed = aiohttp.URL(url)
+            # 将URL中的主机名替换为安全IP（但保留原始主机信息）
+            ip_url = str(parsed.with_host(safe_ip))
+
+            connector = aiohttp.TCPConnector(
+                limit_per_host=3,
+                ttl_dns_cache=300,
+            )
+
+            headers = {"Host": hostname}
+
+            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            async with aiohttp.ClientSession(
+                connector=connector, timeout=timeout
+            ) as session:
+                async with session.get(ip_url, headers=headers) as response:
+                    if response.status != 200:
+                        logger.error(f"下载失败，状态码: {response.status}")
                         return None
 
-                logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
-                return bytes(buffer)
+                    # 流式读取+大小限制
+                    buffer = bytearray()
+                    async for chunk in response.content.iter_chunked(8192):
+                        buffer.extend(chunk)
+                        if len(buffer) > self.max_download_size:
+                            logger.error(f"图片超过大小限制: {len(buffer)} bytes")
+                            return None
+
+                    logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
+                    return bytes(buffer)
 
         except asyncio.TimeoutError:
             logger.error(f"下载超时: {url}")

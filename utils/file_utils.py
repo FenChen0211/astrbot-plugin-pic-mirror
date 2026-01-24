@@ -82,23 +82,31 @@ class FileUtils:
     @staticmethod
     def generate_filename(original_url: str, mode: str) -> str:
         """
-        生成唯一的文件名（改进版：保持原始扩展名）
+        生成唯一的文件名（Base64优化版）
 
         Args:
-            original_url: 原始图像URL或标识符
+            original_url: 原始图像URL或Base64数据
             mode: 对称模式
 
         Returns:
             str: 生成的文件名
         """
-        # 创建哈希值确保唯一性 (SHA256 + 时间戳 + 随机令牌)
         import secrets
         import time
-        
+
+        # Base64数据优化：避免处理完整大型数据
+        if len(original_url) > 1000:
+            # 大型数据：使用MD5摘要代替完整字符串
+            content_hash = hashlib.md5(original_url.encode()).hexdigest()[:16]
+            hash_input = f"{content_hash}_{mode}"
+        else:
+            hash_input = f"{original_url}_{mode}"
+
+        # 添加熵确保唯一性
         timestamp = int(time.time())
-        random_token = secrets.token_hex(4)  # 8位十六进制随机数
-        
-        hash_input = f"{original_url}_{mode}_{timestamp}_{random_token}"
+        random_token = secrets.token_hex(4)
+
+        hash_input = f"{hash_input}_{timestamp}_{random_token}"
         file_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:12]
 
         # 尝试从原始URL获取扩展名
@@ -107,9 +115,9 @@ class FileUtils:
         if not ext:
             # 如果没有扩展名，根据原始URL判断
             if "qq_" in original_url or "avatar_" in original_url:
-                ext = ".jpg"  # 头像通常是jpg
+                ext = ".jpg"
             else:
-                ext = ".png"  # 默认
+                ext = ".png"
 
         return f"mirror_{mode}_{file_hash}{ext}"
 

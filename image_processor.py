@@ -105,41 +105,35 @@ class MirrorProcessor:
         config: Optional[PluginConfig] = None,
     ) -> Tuple[bool, str]:
         """
-        处理静态图像
+        处理静态图像（全异步，避免阻塞）
         """
         try:
-            with Image.open(input_path) as img:
-                # 检查图像尺寸安全性（防止解压炸弹）
-                if not MirrorProcessor._check_image_size(img):
-                    return (
-                        False,
-                        f"图像尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
-                    )
+            loop = asyncio.get_running_loop()
 
-                # 转换模式（确保透明度处理正确）
-                if img.mode == "P":
-                    img = img.convert("RGBA")
-                elif img.mode == "LA":
-                    img = img.convert("RGBA")
+            # 将所有图像处理放入executor执行
+            def process_in_thread():
+                with Image.open(input_path) as img:
+                    # 检查图像尺寸安全性（防止解压炸弹）
+                    if not MirrorProcessor._check_image_size(img):
+                        return None, f"图像尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
 
-                # 应用对称变换
-                loop = asyncio.get_running_loop()
-                mirrored = await loop.run_in_executor(
-                    None, MirrorProcessor._apply_mirror, img, mode
-                )
+                    # 转换模式（确保透明度处理正确）
+                    if img.mode == "P":
+                        img = img.convert("RGBA")
+                    elif img.mode == "LA":
+                        img = img.convert("RGBA")
 
-                # 应用压缩（如果启用）
-                if config and config.enable_compression:
-                    mirrored = await loop.run_in_executor(
-                        None, MirrorProcessor._compress_image, mirrored, config
-                    )
+                    # 应用对称变换
+                    mirrored = MirrorProcessor._apply_mirror(img, mode)
 
-                # 保存图像（使用配置的质量设置）
-                quality = config.output_quality if config else 85
+                    # 应用压缩（如果启用）
+                    if config and config.enable_compression:
+                        mirrored = MirrorProcessor._compress_image(mirrored, config)
 
-                # 将保存操作放到线程池中执行
-                def save_image():
-                    # 根据输出路径扩展名判断保存格式，避免使用输入路径判断
+                    # 保存图像（使用配置的质量设置）
+                    quality = config.output_quality if config else 85
+
+                    # 根据输出路径扩展名判断保存格式
                     output_ext = Path(output_path).suffix.lower()
                     if output_ext == ".png":
                         mirrored.save(output_path, optimize=True)
@@ -148,9 +142,15 @@ class MirrorProcessor:
                     else:
                         mirrored.save(output_path, quality=quality, optimize=True)
 
-                await loop.run_in_executor(None, save_image)
+                    return mirrored, quality
 
-                return True, "图像处理成功"
+            result = await loop.run_in_executor(None, process_in_thread)
+
+            if result[0] is None:
+                return False, result[1]
+
+            return True, "图像处理成功"
+
         except Exception as e:
             return False, f"静态图像处理失败: {str(e)}"
 
@@ -202,60 +202,54 @@ class MirrorProcessor:
         config: Optional[PluginConfig] = None,
     ) -> Tuple[bool, str]:
         """
-        处理GIF动画
+        处理GIF动画（全异步，避免阻塞）
         """
         try:
-            # 读取GIF
             loop = asyncio.get_running_loop()
-            frames = []
-            durations = []
 
-            with Image.open(input_path) as img:
-                # 检查GIF整体尺寸安全性
-                if not MirrorProcessor._check_image_size(img):
-                    return (
-                        False,
-                        f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
-                    )
+            # 将整个GIF处理放入executor执行
+            def process_gif_in_thread():
+                frames = []
+                durations = []
 
-                # 一次遍历同时统计和处理帧（性能优化）
-                frame_count = 0
-                for frame in ImageSequence.Iterator(img):
-                    frame_count += 1
+                with Image.open(input_path) as img:
+                    # 检查GIF整体尺寸安全性
+                    if not MirrorProcessor._check_image_size(img):
+                        return None, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
 
-                    # 记录每帧持续时间
-                    durations.append(frame.info.get("duration", 100))
+                    # 一次遍历同时统计和处理帧
+                    frame_count = 0
+                    for frame in ImageSequence.Iterator(img):
+                        frame_count += 1
 
-                    # 处理当前帧
-                    if frame.mode == "P":
-                        frame = frame.convert("RGBA")
-                    elif frame.mode == "LA":
-                        frame = frame.convert("RGBA")
+                        # 记录每帧持续时间
+                        durations.append(frame.info.get("duration", 100))
 
-                    # 将CPU密集型的图像处理操作放到线程池中执行
-                    mirrored_frame = await loop.run_in_executor(
-                        None, MirrorProcessor._apply_mirror, frame, mode
-                    )
+                        # 处理当前帧
+                        if frame.mode == "P":
+                            frame = frame.convert("RGBA")
+                        elif frame.mode == "LA":
+                            frame = frame.convert("RGBA")
 
-                    # 应用压缩（如果启用）
-                    if config and config.enable_compression:
-                        mirrored_frame = await loop.run_in_executor(
-                            None,
-                            MirrorProcessor._compress_image,
-                            mirrored_frame,
-                            config,
+                        # 应用对称变换
+                        mirrored_frame = MirrorProcessor._apply_mirror(frame, mode)
+
+                        # 应用压缩（如果启用）
+                        if config and config.enable_compression:
+                            mirrored_frame = MirrorProcessor._compress_image(
+                                mirrored_frame, config
+                            )
+
+                        frames.append(mirrored_frame)
+
+                    # 帧数过多时提示
+                    if frame_count > 100:
+                        logger.warning(
+                            f"处理大型GIF: {frame_count}帧，可能需要较长时间"
                         )
 
-                    frames.append(mirrored_frame)
-
-                # 帧数过多时提示
-                if frame_count > 100:
-                    logger.warning(f"处理大型GIF: {frame_count}帧，可能需要较长时间")
-
-            # 保存GIF
-            if len(frames) > 0:
-                # 将保存操作放到线程池中执行
-                def save_gif():
+                # 保存GIF
+                if len(frames) > 0:
                     frames[0].save(
                         output_path,
                         save_all=True,
@@ -264,11 +258,16 @@ class MirrorProcessor:
                         loop=0,
                         optimize=True,
                     )
+                    return frames, None
 
-                await loop.run_in_executor(None, save_gif)
-                return True, "GIF处理成功"
-            else:
-                return False, "GIF没有帧数据"
+                return None, "GIF没有帧数据"
+
+            result = await loop.run_in_executor(None, process_gif_in_thread)
+
+            if result[0] is None:
+                return False, result[1]
+
+            return True, "GIF处理成功"
 
         except Exception as e:
             return False, f"GIF处理失败: {str(e)}"
