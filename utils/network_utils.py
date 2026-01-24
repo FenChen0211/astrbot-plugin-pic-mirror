@@ -4,6 +4,8 @@
 
 import aiohttp
 import asyncio
+import socket           # ✅ 添加这行
+import ipaddress       # ✅ 添加这行
 from typing import Optional
 from astrbot.api import logger
 
@@ -85,15 +87,8 @@ class NetworkUtils:
             if not hostname:
                 return False
             
-            # 1. 快速字符串检查（黑名单）
-            dangerous_patterns = [
-                'localhost', '127.0.0.1', '0.0.0.0', '::1',
-                '169.254.', 'metadata.', '.internal', '.local',
-                'localhost.', '127.0.0.1.', '192.168.', '10.', '172.16.'
-            ]
-            
-            # 检查危险域名模式
-            for pattern in dangerous_patterns:
+            # 1. 快速字符串检查（黑名单）- 使用类常量
+            for pattern in self.DANGEROUS_PATTERNS:
                 if hostname == pattern or hostname.endswith('.' + pattern) or hostname.startswith(pattern):
                     return False
             

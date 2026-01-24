@@ -20,7 +20,7 @@ class PicMirrorPlugin(Star):
         self.config_service = ConfigService(self)
         self.image_handler = ImageHandler(self.config_service)
         
-        logger.info(f"图像对称插件已加载")
+        logger.info("图像对称插件已加载")
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
 
     # 独立指令定义
