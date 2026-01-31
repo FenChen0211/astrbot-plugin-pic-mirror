@@ -8,10 +8,7 @@ from typing import List, Dict, Any, Optional, Set
 from astrbot.api import logger
 from astrbot.api.star import StarTools
 
-try:
-    from ..constants import PLUGIN_NAME
-except ImportError:
-    from ..constants import PLUGIN_NAME
+from ..constants import PLUGIN_NAME
 
 
 class CleanupManager:

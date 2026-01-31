@@ -15,10 +15,7 @@ from astrbot.api import logger
 from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
 
-try:
-    from ..constants import PLUGIN_NAME
-except ImportError:
-    from ..constants import PLUGIN_NAME
+from ..constants import PLUGIN_NAME
 
 # 统一使用相对导入
 from ..utils.network_utils import NetworkUtils

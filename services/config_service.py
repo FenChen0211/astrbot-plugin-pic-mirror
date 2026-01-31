@@ -5,12 +5,7 @@
 from typing import Dict, Any
 from astrbot.api import logger
 
-try:
-    from ..constants import PLUGIN_NAME
-except ImportError:
-    from ..constants import PLUGIN_NAME
-
-# 统一使用相对导入
+from ..constants import PLUGIN_NAME
 from ..config import PluginConfig
 from ..constants import _load_version
 

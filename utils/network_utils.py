@@ -7,12 +7,10 @@ import asyncio
 import socket
 import ipaddress
 from typing import Dict, Optional, Tuple
+from urllib.parse import urlparse
 from astrbot.api import logger
 
-try:
-    from ..constants import PLUGIN_NAME
-except ImportError:
-    from ..constants import PLUGIN_NAME
+from ..constants import PLUGIN_NAME
 
 
 class FixedDNSResolver:
@@ -103,8 +101,8 @@ class NetworkUtils:
     def __init__(self, timeout: int = 30, config=None):
         self.timeout = timeout
         self.config = config  # 保存配置引用
-        self.session = None
         self._session_lock = asyncio.Lock()  # Session创建锁
+        self._domain_sessions: Dict[str, aiohttp.ClientSession] = {}  # 按域名的Session缓存
 
         # 从配置获取大小限制，或使用默认值
         if config and hasattr(config, "max_image_size_bytes"):
@@ -219,8 +217,6 @@ class NetworkUtils:
             (安全IP, 主机名) 或 None（如果不安全）
         """
         try:
-            from urllib.parse import urlparse
-
             parsed = urlparse(url)
 
             # 基础检查
@@ -289,8 +285,6 @@ class NetworkUtils:
     async def _is_safe_url(self, url: str) -> bool:
         """真正的SSRF防护 - 包含DNS解析检查"""
         try:
-            from urllib.parse import urlparse
-
             parsed = urlparse(url)
 
             # 基础检查
@@ -350,8 +344,6 @@ class NetworkUtils:
 
         # 2. 使用自定义DNS解析器（保持原始URL，避免SSL证书问题）
         try:
-            from urllib.parse import urlparse
-
             parsed = urlparse(url)
 
             # 创建固定DNS解析器，强制域名解析到安全IP
@@ -366,25 +358,32 @@ class NetworkUtils:
 
             timeout = aiohttp.ClientTimeout(total=self.timeout)
 
-            async with aiohttp.ClientSession(
-                connector=connector, timeout=timeout
-            ) as session:
-                # 使用原始URL（域名），DNS解析被FixedDNSResolver控制
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        logger.error(f"下载失败，状态码: {response.status}")
+            # 获取或创建该域名的Session（带自定义connector）
+            if hostname not in self._domain_sessions or self._domain_sessions[hostname].closed:
+                async with self._session_lock:
+                    if hostname not in self._domain_sessions or self._domain_sessions[hostname].closed:
+                        self._domain_sessions[hostname] = aiohttp.ClientSession(
+                            connector=connector, timeout=timeout
+                        )
+
+            session = self._domain_sessions[hostname]
+
+            # 使用带自定义DNS解析的Session
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.error(f"下载失败，状态码: {response.status}")
+                    return None
+
+                # 流式读取+大小限制
+                buffer = bytearray()
+                async for chunk in response.content.iter_chunked(8192):
+                    buffer.extend(chunk)
+                    if len(buffer) > self.max_download_size:
+                        logger.error(f"图片超过大小限制: {len(buffer)} bytes")
                         return None
 
-                    # 流式读取+大小限制
-                    buffer = bytearray()
-                    async for chunk in response.content.iter_chunked(8192):
-                        buffer.extend(chunk)
-                        if len(buffer) > self.max_download_size:
-                            logger.error(f"图片超过大小限制: {len(buffer)} bytes")
-                            return None
-
-                    logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
-                    return bytes(buffer)
+                logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
+                return bytes(buffer)
 
         except asyncio.TimeoutError:
             logger.error(f"下载超时: {url}")
