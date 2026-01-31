@@ -95,10 +95,8 @@ class CleanupManager:
                     except Exception as e:
                         logger.warning(f"清理文件失败 {file_path}: {e}")
 
-            # 批量移除
-            for item in items_to_remove:
-                if item in self.cleanup_queue:
-                    self.cleanup_queue.remove(item)
+            # 使用列表推导式重构，更高效（O(N) vs 原 O(N*M)）
+            self.cleanup_queue = [item for item in self.cleanup_queue if item not in items_to_remove]
 
     def _validate_cleanup_path(self, file_path: Path) -> bool:
         """

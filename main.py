@@ -26,22 +26,24 @@ class PicMirrorPlugin(Star):
 
         self.config_service = ConfigService(self)
         self.image_handler = ImageHandler(self.config_service)
-        self._initialized = False  # 标记是否已初始化
+        self._initialized = False
+        self._init_task = None  # 显式初始化，避免 hasattr 隐式依赖
 
         logger.info("图像对称插件已加载")
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
 
     async def _ensure_initialized(self):
-        """确保插件已初始化（延迟初始化）"""
+        """确保插件已初始化（延迟初始化，防竞态条件）"""
         if self._initialized:
             return
         
-        if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
-            await self._init_task
-        else:
-            # 创建初始化任务
+        init_task = self._init_task
+        if init_task is not None and not init_task.done():
+            await init_task
+        elif init_task is None or init_task.done():
             self._init_task = asyncio.create_task(self._do_initialize())
             await self._init_task
+        
         self._initialized = True
 
     async def _do_initialize(self):
@@ -52,6 +54,7 @@ class PicMirrorPlugin(Star):
             logger.info("图像对称插件初始化完成")
         except Exception as e:
             logger.error(f"插件初始化失败: {e}", exc_info=True)
+            self._initialized = False  # 标记为未初始化，允许重试
 
     @filter.event_message_type(EventMessageType.ALL)
     async def handle_all_mirror_commands(self, event: AstrMessageEvent):
@@ -130,8 +133,7 @@ class PicMirrorPlugin(Star):
         termination_error = None
         
         try:
-            # 取消初始化任务
-            if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
+            if self._init_task is not None and not self._init_task.done():
                 self._init_task.cancel()
                 try:
                     await self._init_task
@@ -140,8 +142,7 @@ class PicMirrorPlugin(Star):
                 except Exception as e:
                     termination_error = f"取消初始化任务失败: {e}"
 
-            # 清理 image_handler
-            if hasattr(self, "image_handler") and self.image_handler is not None:
+            if self.image_handler is not None:
                 try:
                     await self.image_handler.cleanup()
                     handler_cleaned = True

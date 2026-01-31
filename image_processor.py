@@ -64,7 +64,6 @@ class MirrorProcessor:
             Tuple[bool, str]: (是否安全, 错误信息)
         """
         try:
-            # 获取预检查文件大小限制
             max_size = config.precheck_file_size_bytes if config else 100 * 1024 * 1024
 
             file_size = os.path.getsize(file_path)
@@ -72,7 +71,6 @@ class MirrorProcessor:
                 max_size_mb = max_size / 1024 / 1024
                 return False, f"文件过大 ({file_size / 1024 / 1024:.1f}MB > {max_size_mb:.0f}MB)"
 
-            # 检查文件头
             with open(file_path, "rb") as f:
                 header = f.read(100)
                 if not header:
@@ -84,6 +82,19 @@ class MirrorProcessor:
         except (PermissionError, OSError) as e:
             logger.error(f"图像预检查异常: {e}")
             return False, "文件检查失败"
+
+    @staticmethod
+    async def _check_image_before_open_async(
+        file_path: str,
+        config: Optional[PluginConfig] = None,
+    ) -> Tuple[bool, str]:
+        """
+        异步版文件预检查（将I/O操作放入线程池执行）
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: MirrorProcessor._check_image_before_open(file_path, config)
+        )
 
     @staticmethod
     async def process_image(
@@ -109,8 +120,8 @@ class MirrorProcessor:
             if not Path(input_path).exists():
                 return False, f"输入文件不存在: {input_path}"
 
-            # 1. 解压炸弹预检查（文件大小和文件头）
-            is_safe, msg = MirrorProcessor._check_image_before_open(input_path, config)
+            # 1. 解压炸弹预检查（文件大小和文件头）- 异步执行避免阻塞事件循环
+            is_safe, msg = await MirrorProcessor._check_image_before_open_async(input_path, config)
             if not is_safe:
                 return False, msg
 
