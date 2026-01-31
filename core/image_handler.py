@@ -39,8 +39,8 @@ class ImageHandler:
         "mirror_downloaded_",
         "mirror_base64_",
     ]
-    
-    TEMP_FILE_PATTERN = re.compile(r'^mirror_(tmp|temp|avatar|downloaded|base64)_.*')
+
+    TEMP_FILE_PATTERN = re.compile(r"^mirror_(tmp|temp|avatar|downloaded|base64)_.*")
 
     def __init__(self, config_service, plugin_name: str = None):
         self.config_service = config_service
@@ -62,7 +62,7 @@ class ImageHandler:
         # 频率限制相关初始化
         self._user_request_times = {}  # 格式: {user_id: [timestamp1, timestamp2...]}
         self._rate_limit_lock = asyncio.Lock()
-        
+
         # 初始化清理任务
         self._cleanup_task = None
 
@@ -76,7 +76,9 @@ class ImageHandler:
         try:
             await self.cleanup_manager.start()
             # 启动定期清理频率限制记录的任务
-            self._cleanup_task = asyncio.create_task(self._periodic_cleanup_rate_limits())
+            self._cleanup_task = asyncio.create_task(
+                self._periodic_cleanup_rate_limits()
+            )
             logger.info("清理管理器已启动")
         except Exception as e:
             logger.error(f"清理管理器启动失败: {e}", exc_info=True)
@@ -96,9 +98,11 @@ class ImageHandler:
         async with self._rate_limit_lock:
             # 获取该用户最近一分钟内的请求记录
             user_requests = self._user_request_times.get(user_id, [])
-            
+
             # 过滤掉一分钟前的请求
-            recent_requests = [req_time for req_time in user_requests if req_time >= window_start]
+            recent_requests = [
+                req_time for req_time in user_requests if req_time >= window_start
+            ]
             self._user_request_times[user_id] = recent_requests
 
             # 检查是否超过限制
@@ -119,13 +123,13 @@ class ImageHandler:
             # 创建新字典以避免在迭代时修改
             new_user_requests = {}
             for user_id, requests in self._user_request_times.items():
-                recent_requests = [req_time for req_time in requests if req_time >= window_start]
+                recent_requests = [
+                    req_time for req_time in requests if req_time >= window_start
+                ]
                 if recent_requests:  # 只保留仍有记录的用户
                     new_user_requests[user_id] = recent_requests
-            
+
             self._user_request_times = new_user_requests
-
-
 
     async def process_mirror(self, event, mode: str):
         """
@@ -289,7 +293,9 @@ class ImageHandler:
 
         return await self._save_temp_file(image_data, "downloaded", ext)
 
-    async def _decode_base64_image(self, base64_data: str, data_hash: str = None) -> Optional[Path]:
+    async def _decode_base64_image(
+        self, base64_data: str, data_hash: str = None
+    ) -> Optional[Path]:
         """解码base64图像 - 优化版，使用预计算摘要"""
         try:
             # 移除base64前缀
@@ -297,7 +303,9 @@ class ImageHandler:
                 base64_data = base64_data[len("base64://") :]
 
             # 1. 检查base64字符串长度
-            MAX_BASE64_LENGTH = int(20 * 1024 * 1024 * 4 / 3 * 1.05)  # 20MB二进制数据对应Base64长度，加5%余量
+            MAX_BASE64_LENGTH = int(
+                20 * 1024 * 1024 * 4 / 3 * 1.05
+            )  # 20MB二进制数据对应Base64长度，加5%余量
             if len(base64_data) > MAX_BASE64_LENGTH:
                 logger.error(f"Base64数据过长: {len(base64_data)}字符")
                 return None
@@ -363,7 +371,10 @@ class ImageHandler:
             # 使用独特前缀：mirror_ + 原前缀 +
             unique_prefix = f"mirror_{prefix}_"
             with tempfile.NamedTemporaryFile(
-                prefix=unique_prefix, suffix=extension, delete=False, dir=str(self.data_dir)
+                prefix=unique_prefix,
+                suffix=extension,
+                delete=False,
+                dir=str(self.data_dir),
             ) as tmp:
                 tmp.write(data)
                 return Path(tmp.name)
@@ -424,7 +435,7 @@ class ImageHandler:
 
     async def cleanup(self):
         await self.cleanup_manager.cleanup_all()
-        
+
         # 清理临时目录
         self.cleanup_manager.cleanup_temp_dirs()
 
@@ -436,7 +447,7 @@ class ImageHandler:
         self.message_utils = None
         self.file_utils = None
         self.avatar_service = None
-        
+
         # 取消清理任务
         if self._cleanup_task and not self._cleanup_task.done():
             self._cleanup_task.cancel()

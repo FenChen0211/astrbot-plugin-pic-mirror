@@ -67,11 +67,11 @@ class MirrorProcessor:
                 return False, f"文件过大 ({file_size / 1024 / 1024:.1f}MB > 100MB)"
 
             # 检查文件头
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 header = f.read(100)
                 if not header:
                     return False, "文件为空或无法读取"
-                    
+
             return True, ""
         except Exception as e:
             logger.error(f"图像预检查异常: {e}")
@@ -155,7 +155,10 @@ class MirrorProcessor:
                 with Image.open(input_path) as img:
                     # 检查图像尺寸安全性（防止解压炸弹）
                     if not MirrorProcessor._check_image_size(img):
-                        return None, f"图像尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
+                        return (
+                            None,
+                            f"图像尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
+                        )
 
                     # 转换模式（确保透明度处理正确）
                     if img.mode == "P":
@@ -175,24 +178,30 @@ class MirrorProcessor:
 
                     # 根据输出路径扩展名判断保存格式
                     output_ext = Path(output_path).suffix.lower()
-                    
+
                     # === JPEG格式特殊处理：确保RGB模式 ===
-                    if output_ext in ['.jpg', '.jpeg'] and mirrored.mode == 'RGBA':
+                    if output_ext in [".jpg", ".jpeg"] and mirrored.mode == "RGBA":
                         try:
                             # 创建一个白色背景，合成不透明图像
-                            background = Image.new('RGB', mirrored.size, (255, 255, 255))
+                            background = Image.new(
+                                "RGB", mirrored.size, (255, 255, 255)
+                            )
                             background.paste(mirrored, mask=mirrored.split()[3])
                             mirrored = background
                         except Exception as e:
                             logger.warning(f"JPEG图像RGBA转RGB失败: {e}")
-                            mirrored = mirrored.convert('RGB')
-                    elif output_ext not in ['.png'] and mirrored.mode not in ('RGB', 'L', 'P'):
+                            mirrored = mirrored.convert("RGB")
+                    elif output_ext not in [".png"] and mirrored.mode not in (
+                        "RGB",
+                        "L",
+                        "P",
+                    ):
                         # 其他格式确保至少是RGB或兼容模式
                         try:
-                            mirrored = mirrored.convert('RGB')
+                            mirrored = mirrored.convert("RGB")
                         except Exception as e:
                             logger.warning(f"图像模式转换失败: {e}")
-                    
+
                     # 保存图像
                     if output_ext == ".png":
                         mirrored.save(output_path, optimize=True)
@@ -269,19 +278,29 @@ class MirrorProcessor:
                 with Image.open(input_path) as img:
                     # 检查GIF整体尺寸安全性
                     if not MirrorProcessor._check_image_size(img):
-                        return None, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
+                        return (
+                            None,
+                            f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
+                        )
 
-                    MAX_FRAMES = config.max_gif_frames if config else 200  # GIF最大帧数限制，防止解压炸弹
+                    MAX_FRAMES = (
+                        config.max_gif_frames if config else 200
+                    )  # GIF最大帧数限制，防止解压炸弹
 
                     # 一次遍历同时统计和处理帧
                     frame_count = 0
                     for frame in ImageSequence.Iterator(img):
                         frame_count += 1
-                        
+
                         if frame_count > MAX_FRAMES:
-                            logger.error(f"GIF帧数过多，可能存在解压炸弹风险: {frame_count}帧")
-                            return None, f"GIF帧数过多（{frame_count} > {MAX_FRAMES}），可能存在安全风险"
-                        
+                            logger.error(
+                                f"GIF帧数过多，可能存在解压炸弹风险: {frame_count}帧"
+                            )
+                            return (
+                                None,
+                                f"GIF帧数过多（{frame_count} > {MAX_FRAMES}），可能存在安全风险",
+                            )
+
                         # 记录每帧持续时间
                         durations.append(frame.info.get("duration", 100))
 

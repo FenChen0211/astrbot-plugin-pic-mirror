@@ -83,7 +83,9 @@ class PluginConfig:
                         return bool(value)
                     return type_(value)
                 except (ValueError, TypeError):
-                    logger.warning(f"配置项 [{key}] 类型错误: {value} ({type_.__name__})，使用默认值: {default}")
+                    logger.warning(
+                        f"配置项 [{key}] 类型错误: {value} ({type_.__name__})，使用默认值: {default}"
+                    )
                     return default
 
             config = cls(

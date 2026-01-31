@@ -59,10 +59,12 @@ class MessageUtils:
                         logger.debug(f"提取到图片: {url[:50]}...")
 
                 elif isinstance(component, Comp.Reply):
-                    if hasattr(component, 'chain') and component.chain:
+                    if hasattr(component, "chain") and component.chain:
                         for reply_component in component.chain:
                             if isinstance(reply_component, Comp.Image):
-                                url = MessageUtils._extract_from_image_component(reply_component)
+                                url = MessageUtils._extract_from_image_component(
+                                    reply_component
+                                )
                                 if url:
                                     image_sources.append(url)
                                     logger.debug(f"从回复消息提取到图片")
@@ -73,28 +75,6 @@ class MessageUtils:
         except (AttributeError, TypeError, KeyError) as e:
             logger.error(f"提取图像源失败: {type(e).__name__}: {e}", exc_info=True)
             return []
-
-    @staticmethod
-    def _extract_from_messages(messages) -> List[str]:
-        """从消息链中提取图像源"""
-        image_sources = []
-
-        if not messages or not isinstance(messages, list):
-            return image_sources
-
-        for component in messages:
-            if isinstance(component, Comp.Image):
-                url = MessageUtils._extract_from_image_component(component)
-                if url:
-                    image_sources.append(url)
-                    logger.debug(f"从消息链提取到图片: {url[:50]}...")
-
-            elif isinstance(component, Comp.Reply):
-                reply_messages = None
-
-                if hasattr(component, 'chain') and component.chain:
-                    reply_messages = component.chain
-                    logger.debug(f"Reply 组件有 chain 属性，长度: {len(reply_messages)}")
 
     @staticmethod
     def _extract_from_image_component(component: Comp.Image) -> Optional[str]:
@@ -136,28 +116,6 @@ class MessageUtils:
 
         logger.debug(f"Image组件没有找到有效的URL属性")  # ✅ debug级别
         return None
-
-    @staticmethod
-    def _extract_from_reply_component(component: Comp.Reply) -> List[str]:
-        """
-        从Reply组件提取图像
-
-        Args:
-            component: Reply组件
-
-        Returns:
-            图像URL列表
-        """
-        image_sources = []
-
-        if hasattr(component, 'chain') and component.chain:
-            for reply_component in component.chain:
-                if isinstance(reply_component, Comp.Image):
-                    url = MessageUtils._extract_from_image_component(reply_component)
-                    if url:
-                        image_sources.append(url)
-
-        return image_sources
 
     @staticmethod
     def extract_command_text(event) -> Optional[str]:

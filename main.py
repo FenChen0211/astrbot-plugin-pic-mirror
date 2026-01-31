@@ -6,27 +6,21 @@ import asyncio
 
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.core.star.filter.event_message_type import EventMessageType
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star
 
 try:
-    from .constants import PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESCRIPTION, PLUGIN_VERSION
+    from .constants import PLUGIN_NAME
 except ImportError:
-    from constants import PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESCRIPTION, PLUGIN_VERSION
+    from constants import PLUGIN_NAME
 
 from astrbot.api import logger
 from .services.config_service import ConfigService
 from .core.image_handler import ImageHandler
 
-# 审核说明: 根据最新审核要求保留 @register 装饰器以确保兼容性和明确性
-# 注: 早期审核建议移除此装饰器(因v3.5.20之后AstrBot可自动识别Star子类)，
-# 但为避免兼容性问题和通过审核，此处保留
-@register(
-    PLUGIN_NAME,
-    PLUGIN_AUTHOR,
-    PLUGIN_DESCRIPTION,
-    PLUGIN_VERSION,
-    repo="https://github.com/FenChen0211/astrbot-plugin-pic-mirror",
-)
+
+# 根据 AstrBot v3.5.20+ 最佳实践: @register 装饰器已废弃
+# AstrBot 可自动识别继承自 Star 的类，无需显式注册
+# 为保持代码简洁和符合新版本规范，此处移除 @register 装饰器
 class PicMirrorPlugin(Star):
     """图像对称处理插件"""
 
@@ -55,7 +49,7 @@ class PicMirrorPlugin(Star):
             "上对称": "top_to_bottom",
             "下对称": "bottom_to_top",
             "对称帮助": "help",
-            "镜像帮助": "help"
+            "镜像帮助": "help",
         }
 
         actual_command = message_str
@@ -77,9 +71,13 @@ class PicMirrorPlugin(Star):
     async def handle_mirror_with_mode(self, event: AstrMessageEvent, mode: str):
         """处理镜像请求的统一入口"""
         # 审核说明: 根据审核要求等待初始化完成，避免竞态条件
-        if hasattr(self, '_init_task') and self._init_task and not self._init_task.done():
+        if (
+            hasattr(self, "_init_task")
+            and self._init_task
+            and not self._init_task.done()
+        ):
             await self._init_task
-        
+
         if self.image_handler is None:
             logger.error("image_handler 未初始化")
             yield event.plain_result("❌ 插件尚未初始化完成，请稍后再试")
@@ -142,7 +140,11 @@ class PicMirrorPlugin(Star):
     async def terminate(self):
         """插件卸载时调用"""
         try:
-            if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
+            if (
+                hasattr(self, "_init_task")
+                and self._init_task
+                and not self._init_task.done()
+            ):
                 self._init_task.cancel()
                 try:
                     await self._init_task

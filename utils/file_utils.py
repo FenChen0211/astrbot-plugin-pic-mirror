@@ -244,7 +244,7 @@ class FileUtils:
 
         if data[:6] in magic["gif"][0]:
             if len(data) > 13:
-                image_descriptor_count = data.count(b'\x2C')
+                image_descriptor_count = data.count(b"\x2c")
                 if image_descriptor_count > 1:
                     logger.debug(f"检测到动态GIF，包含 {image_descriptor_count} 帧")
             return ".gif"
@@ -264,7 +264,11 @@ class FileUtils:
         if data[:2] == magic["bmp"][0]:
             return ".bmp"
 
-        if len(data) > 12 and data[4:8] == magic["avif"][0] and data[8:12] in magic["avif"][2]:
+        if (
+            len(data) > 12
+            and data[4:8] == magic["avif"][0]
+            and data[8:12] in magic["avif"][2]
+        ):
             return ".avif"
 
         if data[:4] in magic["ico"][0]:

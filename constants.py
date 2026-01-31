@@ -7,6 +7,7 @@ PLUGIN_NAME = "astrbot-plugin-pic-mirror"
 PLUGIN_AUTHOR = "FenChen0211"
 PLUGIN_DESCRIPTION = "图像对称处理插件"
 
+
 # 从 metadata.yaml 读取版本号
 def _load_version() -> str:
     try:
@@ -20,7 +21,9 @@ def _load_version() -> str:
                 return version
     except Exception as e:
         from astrbot.api import logger
+
         logger.warning(f"加载版本信息失败，使用默认版本: {e}")
     return "1.2.0"
+
 
 PLUGIN_VERSION = _load_version()

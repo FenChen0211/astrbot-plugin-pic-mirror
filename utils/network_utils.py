@@ -47,29 +47,37 @@ class FixedDNSResolver:
             try:
                 ip_obj = ipaddress.ip_address(safe_ip)
             except ValueError:
-                # IP格式无效，回退到默认解析器
-                logger.warning(f"无效的预解析IP: {safe_ip}，使用默认解析器")
-                return await self._resolver.resolve(hostname, port, family)
+                # IP格式无效，返回空列表而不是回退到默认解析器
+                logger.warning(f"无效的预解析IP: {safe_ip}，拒绝解析")
+                return []
 
             # 检查地址族兼容性
             if family == socket.AF_INET and ip_obj.version != 4:
                 # 请求IPv4但预解析的是IPv6
-                logger.warning(f"地址族不匹配: 请求IPv4但 {hostname} 预解析为IPv6 ({safe_ip})，使用默认解析器")
-                return await self._resolver.resolve(hostname, port, family)
+                # 安全修复：地址族不匹配时返回空列表，不回退到默认解析器
+                logger.warning(
+                    f"地址族不匹配: 请求IPv4但 {hostname} 预解析为IPv6 ({safe_ip})，拒绝解析"
+                )
+                return []
             elif family == socket.AF_INET6 and ip_obj.version != 6:
                 # 请求IPv6但预解析的是IPv4
-                logger.warning(f"地址族不匹配: 请求IPv6但 {hostname} 预解析为IPv4 ({safe_ip})，使用默认解析器")
-                return await self._resolver.resolve(hostname, port, family)
+                # 安全修复：地址族不匹配时返回空列表，不回退到默认解析器
+                logger.warning(
+                    f"地址族不匹配: 请求IPv6但 {hostname} 预解析为IPv4 ({safe_ip})，拒绝解析"
+                )
+                return []
 
             # 返回预先验证的安全IP
-            return [{
-                'hostname': hostname,
-                'host': safe_ip,
-                'port': port,
-                'family': family,
-                'proto': socket.IPPROTO_TCP,
-                'flags': socket.AI_NUMERICHOST
-            }]
+            return [
+                {
+                    "hostname": hostname,
+                    "host": safe_ip,
+                    "port": port,
+                    "family": family,
+                    "proto": socket.IPPROTO_TCP,
+                    "flags": socket.AI_NUMERICHOST,
+                }
+            ]
         # 其他域名使用默认解析器
         return await self._resolver.resolve(hostname, port, family)
 
@@ -175,7 +183,7 @@ class NetworkUtils:
             return True
         except ValueError:
             pass
-        
+
         # 检测整数格式的IPv4
         try:
             ip_int = int(hostname)
@@ -184,7 +192,7 @@ class NetworkUtils:
                 return True
         except (ValueError, ipaddress.AddressValueError):
             pass
-        
+
         return False
 
     def _is_link_local_ip(self, ip_str: str) -> bool:
@@ -198,7 +206,7 @@ class NetworkUtils:
     async def _is_safe_url_with_ip(self, url: str) -> Optional[Tuple[str, str]]:
         """
         增强版安全URL检查 + DNS解析，返回安全IP和主机名
-        
+
         改进点：
         - 对IP格式的URL直接检查，绕过DNS解析
         - 检测整数格式的IPv4表示（如 2130706433）
@@ -231,7 +239,7 @@ class NetworkUtils:
                     return None
                 # 对于IP格式，直接返回IP作为主机名
                 return (hostname, hostname)
-            
+
             # 移除IPv6方括号（如果存在）
             if hostname.startswith("[") and hostname.endswith("]"):
                 hostname_clean = hostname[1:-1]
@@ -343,6 +351,7 @@ class NetworkUtils:
         # 2. 使用自定义DNS解析器（保持原始URL，避免SSL证书问题）
         try:
             from urllib.parse import urlparse
+
             parsed = urlparse(url)
 
             # 创建固定DNS解析器，强制域名解析到安全IP
@@ -447,7 +456,7 @@ class NetworkUtils:
             except Exception as e:
                 if attempt == retries:
                     logger.debug(f"下载失败 {url} (尝试{attempt + 1}次): {e}")
-                await asyncio.sleep(0.5 * (2 ** attempt))  # 指数退避: 0.5s, 1s, 2s
+                await asyncio.sleep(0.5 * (2**attempt))  # 指数退避: 0.5s, 1s, 2s
 
         return None
 

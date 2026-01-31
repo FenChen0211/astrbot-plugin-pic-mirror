@@ -1,8 +1,8 @@
 """清理管理器"""
 
 import asyncio
+import tempfile
 import time
-import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 from astrbot.api import logger
@@ -92,7 +92,7 @@ class CleanupManager:
                 # 构建安全路径
                 safe_path = (plugin_data_dir / file_path).resolve()
                 data_dir_resolved = plugin_data_dir.resolve()
-                
+
                 if safe_path.is_relative_to(data_dir_resolved):
                     # 确保路径在数据目录内且没有符号链接逃逸
                     if safe_path.is_symlink():
@@ -101,10 +101,15 @@ class CleanupManager:
                             logger.error(f"拒绝清理符号链接指向的外部路径: {file_path}")
                             return
                 else:
-                    logger.error(f"[清理管理器] 拒绝清理外部路径（路径遍历攻击尝试）: {file_path}")
+                    logger.error(
+                        f"[清理管理器] 拒绝清理外部路径（路径遍历攻击尝试）: {file_path}"
+                    )
                     return
             except Exception as e:
-                logger.error(f"[清理管理器] 路径校验失败（原因: {type(e).__name__}: {e}），拒绝执行清理以确保安全", exc_info=True)
+                logger.error(
+                    f"[清理管理器] 路径校验失败（原因: {type(e).__name__}: {e}），拒绝执行清理以确保安全",
+                    exc_info=True,
+                )
                 return
 
         if keep_hours <= 0:
@@ -143,11 +148,17 @@ class CleanupManager:
 
         if self._cleanup_task and not self._cleanup_task.done():
             self._stop_event.set()
-            timeout = self.config.cleanup_timeout if hasattr(self.config, 'cleanup_timeout') else 5.0
+            timeout = (
+                self.config.cleanup_timeout
+                if hasattr(self.config, "cleanup_timeout")
+                else 5.0
+            )
             try:
                 await asyncio.wait_for(self._cleanup_task, timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning(f"清理任务在{timeout}秒内未响应（可能正在处理文件或卡住），强制取消")
+                logger.warning(
+                    f"清理任务在{timeout}秒内未响应（可能正在处理文件或卡住），强制取消"
+                )
                 self._cleanup_task.cancel()
                 try:
                     await self._cleanup_task
