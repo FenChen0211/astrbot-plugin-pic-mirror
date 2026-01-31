@@ -6,8 +6,10 @@ import asyncio
 import base64
 import hashlib
 import tempfile
+import time
+import random
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from astrbot.api import logger
 from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
@@ -46,6 +48,17 @@ class ImageHandler:
         self.data_dir = StarTools.get_data_dir(self.plugin_name)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
+        # 频率限制相关初始化
+        self._user_request_times = {}  # 格式: {user_id: [timestamp1, timestamp2...]}
+        self._rate_limit_lock = None  # 延迟初始化
+
+    @property
+    def rate_limit_lock(self):
+        """延迟初始化锁对象"""
+        if self._rate_limit_lock is None:
+            self._rate_limit_lock = asyncio.Lock()
+        return self._rate_limit_lock
+
     async def initialize(self):
         """异步初始化清理管理器"""
         try:
@@ -54,6 +67,53 @@ class ImageHandler:
         except Exception as e:
             logger.error(f"清理管理器启动失败: {e}", exc_info=True)
             # 即使启动失败，插件仍可运行，只是没有定时清理
+
+    async def check_rate_limit(self, user_id: str) -> Tuple[bool, Optional[str]]:
+        """
+        检查用户是否超过频率限制
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            (是否允许, 错误信息)
+        """
+        if not self.config.rate_limit_enabled:
+            return True, None
+
+        async with self.rate_limit_lock:
+            current_time = time.time()
+            one_minute_ago = current_time - 60
+
+            request_times = self._user_request_times.get(user_id, [])
+            recent_requests = [t for t in request_times if t > one_minute_ago]
+
+            if len(recent_requests) >= self.config.rate_limit_per_minute:
+                oldest_request = min(recent_requests)
+                wait_seconds = max(1, int(60 - (current_time - oldest_request)))
+                return False, f"请求过于频繁，请等待 {wait_seconds} 秒后再试"
+
+            recent_requests.append(current_time)
+            self._user_request_times[user_id] = recent_requests
+
+            if random.random() < 0.01:
+                self._cleanup_old_rate_limit_records()
+
+            return True, None
+
+    def _cleanup_old_rate_limit_records(self):
+        """清理过期的频率限制记录"""
+        current_time = time.time()
+        one_minute_ago = current_time - 60
+
+        for user_id in list(self._user_request_times.keys()):
+            request_times = self._user_request_times[user_id]
+            recent_requests = [t for t in request_times if t > one_minute_ago]
+
+            if recent_requests:
+                self._user_request_times[user_id] = recent_requests
+            else:
+                del self._user_request_times[user_id]
 
     async def process_mirror(self, event, mode: str):
         """
@@ -64,7 +124,15 @@ class ImageHandler:
             mode: 对称模式
         """
         try:
-            logger.info(f"开始处理图像对称请求，模式: {mode}")
+            user_id = event.get_sender_id()
+            allowed, error_msg = await self.check_rate_limit(user_id)
+
+            if not allowed:
+                logger.warning(f"用户 {user_id} 触发频率限制")
+                yield self._get_error_message(event, error_msg)
+                return
+
+            logger.info(f"开始处理图像对称请求，用户: {user_id}, 模式: {mode}")
 
             # 1. 尝试获取@的用户头像
             if self.config.enable_at_avatar:
@@ -122,19 +190,21 @@ class ImageHandler:
         avatar_data = await self.avatar_service.get_avatar(qq_number)
         if not avatar_data:
             yield self._get_error_message(event, "获取头像失败")
-            else:
-                # 保存头像临时文件
-                input_path = await self._save_temp_file(
-                    avatar_data, f"avatar_{qq_number}", ".jpg"
-                )
-                if not input_path:
-                    yield self._get_error_message(event, "保存头像失败")
-                else:
-                    # 处理头像
-                    async for result in self._process_single_image(
-                        event, input_path, mode, f"qq_{qq_number}"
-                    ):
-                        yield result
+            return
+
+        # 保存头像临时文件
+        input_path = await self._save_temp_file(
+            avatar_data, f"avatar_{qq_number}", ".jpg"
+        )
+        if not input_path:
+            yield self._get_error_message(event, "保存头像失败")
+            return
+
+        # 处理头像
+        async for result in self._process_single_image(
+            event, input_path, mode, f"qq_{qq_number}"
+        ):
+            yield result
 
     async def _process_single_image(
         self, event, input_path: Path, mode: str, source_info: str
@@ -276,10 +346,12 @@ class ImageHandler:
     async def _save_temp_file(
         self, data: bytes, prefix: str, extension: str
     ) -> Optional[Path]:
-        """保存临时文件"""
+        """保存临时文件 - 使用独特前缀避免误删"""
         try:
+            # 使用独特前缀：mirror_ + 原前缀 +
+            unique_prefix = f"mirror_{prefix}_"
             with tempfile.NamedTemporaryFile(
-                prefix=prefix, suffix=extension, delete=False, dir=str(self.data_dir)
+                prefix=unique_prefix, suffix=extension, delete=False, dir=str(self.data_dir)
             ) as tmp:
                 tmp.write(data)
                 return Path(tmp.name)
@@ -288,24 +360,20 @@ class ImageHandler:
             return None
 
     def _cleanup_input_file(self, file_path: Path):
-        """清理输入文件 - 更安全版本"""
+        """清理输入文件 - 使用独特前缀确保安全"""
         if not file_path or not file_path.exists():
             return
 
         try:
-            # 更精确的判断：文件在插件数据目录内且是临时文件
             if file_path.parent == self.data_dir:
                 filename = file_path.name.lower()
-                # 修复前缀匹配：匹配"downloaded"和"downloaded_"等多种前缀
+                # 使用独特前缀，避免与用户文件名冲突
                 temp_prefixes = [
-                    "tmp",
-                    "temp",
-                    "avatar_",
-                    "avatar",
-                    "downloaded",
-                    "downloaded_",
-                    "base64",
-                    "base64_",
+                    "mirror_tmp_",
+                    "mirror_temp_",
+                    "mirror_avatar_",
+                    "mirror_downloaded_",
+                    "mirror_base64_",
                 ]
 
                 if any(filename.startswith(prefix) for prefix in temp_prefixes):

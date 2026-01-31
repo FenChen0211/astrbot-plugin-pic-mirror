@@ -29,6 +29,9 @@ class PluginConfig:
     # 清理设置
     keep_files_hours: int = 1  # 文件保留时间 (小时)
 
+    # 频率限制
+    rate_limit_per_minute: int = 10  # 每个用户每分钟最多请求次数
+
     @property
     def max_image_size_bytes(self) -> int:
         """获取最大图像文件大小 (字节)"""
@@ -38,6 +41,11 @@ class PluginConfig:
     def max_gif_size_bytes(self) -> int:
         """获取最大GIF文件大小 (字节)"""
         return self.gif_size_limit_mb * 1024 * 1024
+
+    @property
+    def rate_limit_enabled(self) -> bool:
+        """是否启用了频率限制"""
+        return self.rate_limit_per_minute > 0
 
     @classmethod
     def load_from_dict(cls, config_dict: Optional[Dict[str, Any]]) -> "PluginConfig":
@@ -83,6 +91,7 @@ class PluginConfig:
                 enable_auto_cleanup=safe_get("enable_auto_cleanup", True, bool),
                 keep_files_hours=safe_get("keep_files_hours", 1, int),
                 enable_at_avatar=safe_get("enable_at_avatar", True, bool),
+                rate_limit_per_minute=safe_get("rate_limit_per_minute", 10, int),
             )
             config.validate()
             return config
@@ -107,4 +116,6 @@ class PluginConfig:
             raise ValueError("output_quality must be between 1-100")
         if self.keep_files_hours < 0:
             raise ValueError("keep_files_hours cannot be negative")
+        if not (0 <= self.rate_limit_per_minute <= 60):
+            raise ValueError("rate_limit_per_minute must be between 0-60")
         # 布尔值不需要验证

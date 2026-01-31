@@ -50,6 +50,7 @@ class ConfigService:
         return (
             f"图像限制={config.image_size_limit_mb}MB, "
             f"GIF限制={config.gif_size_limit_mb}MB, "
+            f"频率限制={config.rate_limit_per_minute}次/分钟, "
             f"自动清理={'启用' if config.enable_auto_cleanup else '禁用'}, "
             f"@头像功能={'启用' if config.enable_at_avatar else '禁用'}"
         )
@@ -84,9 +85,10 @@ class ConfigService:
 当前配置:
 • 图像大小限制: {config.image_size_limit_mb}MB
 • GIF大小限制: {config.gif_size_limit_mb}MB
+• 频率限制: {config.rate_limit_per_minute}次/分钟
 • GIF处理: {"✅ 已启用" if config.enable_gif else "❌ 已禁用"}
 • 自动清理: {"✅ 已启用" if config.enable_auto_cleanup else "❌ 已禁用"}
-• @头像功能: {"✅ 已启用" if config.enable_at_avatar else ""}
+• @头像功能: {"✅ 已启用" if config.enable_at_avatar else "❌ 已禁用"}
 
 可用指令:
 • 左对称 / mirror left - 左半边对称到右边
@@ -101,6 +103,7 @@ class ConfigService:
 
 支持格式: PNG, JPG, GIF, BMP, WebP
 大小限制: 图像<{config.image_size_limit_mb}MB, GIF<{config.gif_size_limit_mb}MB
+频率限制: 每用户最多{config.rate_limit_per_minute}次/分钟
 
 示例:
 回复图片消息后发送: 左对称

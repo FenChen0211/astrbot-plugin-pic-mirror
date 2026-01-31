@@ -3,28 +3,80 @@
 """
 
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star
+from astrbot.api.star import Context, Star, register
+from astrbot.core.star.filter.event_message_type import EventMessageType
 from astrbot.api import logger
 import asyncio
 
-from .constants import PLUGIN_NAME
+from .constants import PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESCRIPTION, PLUGIN_VERSION
 
 from .services.config_service import ConfigService
 from .core.image_handler import ImageHandler
 
 
+@register(
+    PLUGIN_NAME,
+    PLUGIN_AUTHOR,
+    PLUGIN_DESCRIPTION,
+    PLUGIN_VERSION,
+    repo="https://github.com/FenChen0211/astrbot-plugin-pic-mirror",
+)
 class PicMirrorPlugin(Star):
     """图像对称处理插件"""
 
     def __init__(self, context: Context):
         super().__init__(context)
 
-        # 旧版初始化方式
         self.config_service = ConfigService(self)
         self.image_handler = ImageHandler(self.config_service)
 
         logger.info("图像对称插件已加载")
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
+
+        asyncio.create_task(self.initialize())
+
+    @filter.event_message_type(EventMessageType.ALL)
+    async def handle_all_mirror_commands(self, event: AstrMessageEvent):
+        """
+        处理无斜杠的镜像指令
+        格式: "指令名 @用户" (如: "左对称 @张三")
+        """
+        message_str = event.message_str.strip()
+
+        plain_commands = {
+            "左对称": "left_to_right",
+            "右对称": "right_to_left",
+            "上对称": "top_to_bottom",
+            "下对称": "bottom_to_top",
+            "对称帮助": "help",
+            "镜像帮助": "help"
+        }
+
+        actual_command = message_str
+        if " @" in message_str or message_str.startswith("@"):
+            parts = message_str.split("@", 1)
+            actual_command = parts[0].strip()
+
+        if actual_command in plain_commands:
+            mode = plain_commands[actual_command]
+            logger.info(f"收到无斜杠指令: {actual_command} -> 模式: {mode}")
+
+            if mode == "help":
+                async for result in self.mirror_help(event):
+                    yield result
+            else:
+                async for result in self.handle_mirror_with_mode(event, mode):
+                    yield result
+
+    async def handle_mirror_with_mode(self, event: AstrMessageEvent, mode: str):
+        """处理镜像请求的统一入口"""
+        if self.image_handler is None:
+            logger.error("image_handler 未初始化")
+            yield event.plain_result("❌ 插件尚未初始化完成，请稍后再试")
+            return
+
+        async for result in self.image_handler.process_mirror(event, mode):
+            yield result
 
     # 独立指令定义
     async def _handle_mirror_command(self, event: AstrMessageEvent, mode: str):
@@ -74,10 +126,10 @@ class PicMirrorPlugin(Star):
         help_text = self.config_service.get_help_text()
         yield event.plain_result(help_text)
 
-    @filter.on_astrbot_loaded
-    async def on_loaded(self):
-        """Bot加载完成时自动调用初始化"""
-        await self.initialize()
+    # @filter.on_astrbot_loaded
+    # async def on_loaded(self):
+    #     """Bot加载完成时自动调用初始化"""
+    #     await self.initialize()
 
     async def initialize(self):
         """插件异步初始化"""

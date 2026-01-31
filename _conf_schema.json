@@ -68,5 +68,13 @@
     "type": "bool",
     "default": true,
     "hint": "是否允许通过@用户获取其头像进行处理"
+  },
+  "rate_limit_per_minute": {
+    "description": "请求频率限制 (次/分钟)",
+    "type": "int",
+    "default": 10,
+    "min": 0,
+    "max": 60,
+    "hint": "每个用户每分钟最多能请求多少次图像对称处理。设为0表示不限制（不推荐）。"
   }
 }
