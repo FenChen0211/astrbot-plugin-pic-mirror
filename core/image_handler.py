@@ -37,6 +37,8 @@ class ImageHandler:
         "mirror_base64_",
     ]
 
+    RATE_LIMIT_WINDOW_SECONDS = 60  # 频率限制时间窗口（秒）
+
     def __init__(self, config_service, plugin_name: str = None):
         self.config_service = config_service
         self.config = config_service.config  # ✅ 直接使用
@@ -84,46 +86,47 @@ class ImageHandler:
     async def _periodic_cleanup_rate_limits(self):
         """定期清理过期的频率限制记录"""
         while True:
-            await asyncio.sleep(300)  # 每5分钟清理一次
-            self._cleanup_old_rate_limit_records()
+            try:
+                await asyncio.sleep(300)  # 每5分钟清理一次
+                self._cleanup_old_rate_limit_records()
+            except asyncio.CancelledError:
+                logger.info("频率限制清理任务已取消")
+                break
+            except Exception as e:
+                logger.error(f"频率限制清理任务异常: {e}", exc_info=True)
 
     async def check_rate_limit(self, user_id: str) -> Tuple[bool, Optional[str]]:
         """检查用户请求频率限制"""
         current_time = time.time()
-        window_start = current_time - 60  # 一分钟窗口
+        window_start = current_time - self.RATE_LIMIT_WINDOW_SECONDS
 
         async with self._rate_limit_lock:
-            # 获取该用户最近一分钟内的请求记录
             user_requests = self._user_request_times.get(user_id, [])
 
-            # 过滤掉一分钟前的请求
             recent_requests = [
                 req_time for req_time in user_requests if req_time >= window_start
             ]
             self._user_request_times[user_id] = recent_requests
 
-            # 检查是否超过限制
             if len(recent_requests) >= self.config.rate_limit_per_minute:
-                remaining_time = 60 - (current_time - min(recent_requests))
+                remaining_time = self.RATE_LIMIT_WINDOW_SECONDS - (current_time - min(recent_requests))
                 return False, f"请求过于频繁，请{int(remaining_time)}秒后再试"
 
-            # 添加当前请求记录
             self._user_request_times[user_id].append(current_time)
             return True, None
 
     def _cleanup_old_rate_limit_records(self):
         """清理过期的频率限制记录"""
         current_time = time.time()
-        window_start = current_time - 60  # 一分钟窗口
+        window_start = current_time - self.RATE_LIMIT_WINDOW_SECONDS
 
-        with contextlib.suppress(Exception):  # 防止并发问题
-            # 创建新字典以避免在迭代时修改
+        with contextlib.suppress(Exception):
             new_user_requests = {}
             for user_id, requests in self._user_request_times.items():
                 recent_requests = [
                     req_time for req_time in requests if req_time >= window_start
                 ]
-                if recent_requests:  # 只保留仍有记录的用户
+                if recent_requests:
                     new_user_requests[user_id] = recent_requests
 
             self._user_request_times = new_user_requests
@@ -295,20 +298,20 @@ class ImageHandler:
     ) -> Optional[Path]:
         """解码base64图像 - 优化版，使用预计算摘要"""
         try:
-            # 移除base64前缀
             if base64_data.startswith("base64://"):
                 base64_data = base64_data[len("base64://") :]
 
-            # 1. 检查base64字符串长度（使用配置的最大值，防止绕过）
             max_size = (
                 self.config.max_image_size_bytes if self.config else 10 * 1024 * 1024
             )
-            MAX_BASE64_LENGTH = int(max_size * 4 / 3 * 1.05)  # Base64编码会增加约33%长度
-            if len(base64_data) > MAX_BASE64_LENGTH:
-                logger.error(f"Base64数据过长: {len(base64_data)}字符 > {MAX_BASE64_LENGTH}字符")
+            max_base64_length = min(
+                int(max_size * 4 / 3) + 100,  # Base64编码会增加约33%长度，加100缓冲
+                20 * 1024 * 1024  # 限制最大20MB Base64字符串
+            )
+            if len(base64_data) > max_base64_length:
+                logger.error(f"Base64数据过长: {len(base64_data)}字符 > {max_base64_length}字符")
                 return None
 
-            # 将解码操作放入线程池避免阻塞
             loop = asyncio.get_running_loop()
 
             def decode_in_thread():
@@ -316,15 +319,10 @@ class ImageHandler:
 
             image_data = await loop.run_in_executor(None, decode_in_thread)
 
-            # 3. 检查解码后大小
-            max_size = (
-                self.config.max_image_size_bytes if self.config else 10 * 1024 * 1024
-            )
             if len(image_data) > max_size:
                 logger.error(f"解码后图像过大: {len(image_data)}字节 > {max_size}字节")
                 return None
 
-            # 4. 保存：使用预计算的数据hash而不是完整base64字符串
             source_info = data_hash if data_hash else f"base64_{len(base64_data)}"
             ext = self.file_utils.detect_image_format_by_magic(image_data) or ".png"
             return await self._save_temp_file(image_data, source_info, ext)
@@ -437,22 +435,19 @@ class ImageHandler:
     async def cleanup(self):
         await self.cleanup_manager.cleanup_all()
 
-        # 清理临时目录
         self.cleanup_manager.cleanup_temp_dirs()
 
-        # 关闭网络连接
         if hasattr(self.network_utils, "cleanup"):
             await self.network_utils.cleanup()
 
-        self.network_utils = None
-        self.message_utils = None
-        self.file_utils = None
-        self.avatar_service = None
+        if hasattr(self.avatar_service, "cleanup"):
+            await self.avatar_service.cleanup()
 
-        # 取消清理任务
         if self._cleanup_task and not self._cleanup_task.done():
             self._cleanup_task.cancel()
             try:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
+
+        logger.info("ImageHandler 资源清理完成")

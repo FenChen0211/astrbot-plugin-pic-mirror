@@ -84,6 +84,7 @@ class NetworkUtils:
     """网络请求工具类"""
 
     # 类常量
+    # 危险域名/地址模式（用于SSRF防护）
     DANGEROUS_PATTERNS = [
         "localhost",
         "127.0.0.1",
@@ -94,6 +95,37 @@ class NetworkUtils:
         ".internal",
         ".local",
         ".localdomain",
+        # 内网地址段（CIDR表示法，字符串匹配）
+        "10.",
+        "172.16.",
+        "172.17.",
+        "172.18.",
+        "172.19.",
+        "172.20.",
+        "172.21.",
+        "172.22.",
+        "172.23.",
+        "172.24.",
+        "172.25.",
+        "172.26.",
+        "172.27.",
+        "172.28.",
+        "172.29.",
+        "172.30.",
+        "172.31.",
+        "192.168.",
+    ]
+
+    # 重试退避策略（秒）
+    RETRY_BASE_DELAY = 0.5
+    RETRY_MAX_DELAY = 4.0
+
+    # QQ头像API列表
+    QQ_AVATAR_APIS = [
+        "https://q1.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
+        "https://q2.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
+        "https://q4.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
+        "https://q.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
     ]
 
     def __init__(self, timeout: int = 30, config=None):
@@ -338,7 +370,6 @@ class NetworkUtils:
         Returns:
             图片字节数据，失败返回None
         """
-        # 1. 安全检查 + DNS解析（获取固定安全IP）
         safe_info = await self._is_safe_url_with_ip(url)
         if not safe_info:
             logger.warning(f"拒绝不安全的URL: {url}")
@@ -346,36 +377,23 @@ class NetworkUtils:
 
         safe_ip, hostname = safe_info
 
-        # 2. 使用自定义DNS解析器（保持原始URL，避免SSL证书问题）
-        # 复用基础Session，但为每个请求使用独立的Connector以避免DNS Pinning
         try:
-            parsed = urlparse(url)
-
-            # 创建固定DNS解析器，强制域名解析到安全IP
             resolver = FixedDNSResolver({hostname: safe_ip})
-
-            # 使用自定义解析器的连接器
             connector = aiohttp.TCPConnector(
                 resolver=resolver,
                 limit_per_host=3,
                 ttl_dns_cache=300,
             )
-
             timeout = aiohttp.ClientTimeout(total=self.timeout)
 
-            # 复用基础 Session，避免频繁创建 Session 的开销
-            session = await self._get_base_session()
-            
-            # 临时替换 session.connector 为自定义 resolver 的 connector
-            original_connector = session.connector
-            try:
-                session._connector = connector
+            async with aiohttp.ClientSession(
+                connector=connector, timeout=timeout
+            ) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
                         logger.error(f"下载失败，状态码: {response.status}")
                         return None
 
-                    # 流式读取+大小限制
                     buffer = bytearray()
                     async for chunk in response.content.iter_chunked(8192):
                         buffer.extend(chunk)
@@ -385,9 +403,6 @@ class NetworkUtils:
 
                     logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
                     return bytes(buffer)
-            finally:
-                # 恢复原始 connector
-                session._connector = original_connector
 
         except asyncio.TimeoutError:
             logger.error(f"下载超时: {url}")
@@ -407,12 +422,9 @@ class NetworkUtils:
         Returns:
             头像图片字节数据，失败返回None
         """
-        # QQ头像API列表（只使用HTTPS）
         avatar_urls = [
-            f"https://q1.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
-            f"https://q2.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
-            f"https://q4.qlogo.cn/headimg_dl?dst_uin={qq_number}&spec={size}",
-            f"https://q.qlogo.cn/g?b=qq&nk={qq_number}&s={size}",
+            url.format(qq_number=qq_number, size=size)
+            for url in self.QQ_AVATAR_APIS
         ]
 
         for url in avatar_urls:
@@ -432,7 +444,7 @@ class NetworkUtils:
 
     async def _download_with_retry(self, url: str, retries: int = 2) -> Optional[bytes]:
         """
-        带重试的下载
+        带重试的下载（指数退避策略）
 
         Args:
             url: 下载地址
@@ -444,7 +456,6 @@ class NetworkUtils:
         session = await self.get_session()
         for attempt in range(retries + 1):
             try:
-                # 设置超时和headers
                 timeout = aiohttp.ClientTimeout(total=10)
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -456,12 +467,14 @@ class NetworkUtils:
                     if response.status == 200:
                         return await response.read()
                     elif response.status == 404:
-                        # 404不需要重试
                         return None
             except Exception as e:
                 if attempt == retries:
                     logger.warning(f"下载失败 {url} (尝试{attempt + 1}次): {e}")
-                await asyncio.sleep(0.5 * (2**attempt))  # 指数退避: 0.5s, 1s, 2s
+                delay = min(
+                    self.RETRY_BASE_DELAY * (2**attempt), self.RETRY_MAX_DELAY
+                )
+                await asyncio.sleep(delay)
 
         return None
 

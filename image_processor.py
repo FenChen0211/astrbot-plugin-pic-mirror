@@ -44,27 +44,33 @@ class MirrorProcessor:
         return True
 
     @staticmethod
-    def _check_image_before_open(file_path: str) -> Tuple[bool, str]:
+    def _check_image_before_open(
+        file_path: str,
+        config: Optional[PluginConfig] = None,
+    ) -> Tuple[bool, str]:
         """
         打开图像前进行安全检查（解压炸弹防护）
 
         检查项:
-        - 文件大小限制（硬限制100MB）
+        - 文件大小限制（使用配置中的 precheck_file_size_mb）
         - 文件头校验
         - 文件是否为空
 
         Args:
             file_path: 文件路径
+            config: 插件配置，用于读取文件大小限制
 
         Returns:
             Tuple[bool, str]: (是否安全, 错误信息)
         """
         try:
-            # 检查文件大小（防止超大文件）
-            max_size = 100 * 1024 * 1024  # 100MB硬限制
+            # 获取预检查文件大小限制
+            max_size = config.precheck_file_size_bytes if config else 100 * 1024 * 1024
+
             file_size = os.path.getsize(file_path)
             if file_size > max_size:
-                return False, f"文件过大 ({file_size / 1024 / 1024:.1f}MB > 100MB)"
+                max_size_mb = max_size / 1024 / 1024
+                return False, f"文件过大 ({file_size / 1024 / 1024:.1f}MB > {max_size_mb:.0f}MB)"
 
             # 检查文件头
             with open(file_path, "rb") as f:
@@ -73,7 +79,9 @@ class MirrorProcessor:
                     return False, "文件为空或无法读取"
 
             return True, ""
-        except Exception as e:
+        except FileNotFoundError:
+            return False, "文件不存在"
+        except (PermissionError, OSError) as e:
             logger.error(f"图像预检查异常: {e}")
             return False, "文件检查失败"
 
@@ -102,7 +110,7 @@ class MirrorProcessor:
                 return False, f"输入文件不存在: {input_path}"
 
             # 1. 解压炸弹预检查（文件大小和文件头）
-            is_safe, msg = MirrorProcessor._check_image_before_open(input_path)
+            is_safe, msg = MirrorProcessor._check_image_before_open(input_path, config)
             if not is_safe:
                 return False, msg
 
@@ -179,29 +187,10 @@ class MirrorProcessor:
                     # 根据输出路径扩展名判断保存格式
                     output_ext = Path(output_path).suffix.lower()
 
-                    # === JPEG格式特殊处理：确保RGB模式 ===
-                    if output_ext in [".jpg", ".jpeg"] and mirrored.mode == "RGBA":
-                        try:
-                            # 创建一个白色背景，合成不透明图像
-                            background = Image.new(
-                                "RGB", mirrored.size, (255, 255, 255)
-                            )
-                            background.paste(mirrored, mask=mirrored.split()[3])
-                            mirrored = background
-                        except Exception as e:
-                            logger.warning(f"JPEG图像RGBA转RGB失败: {e}")
-                            logger.warning("透明度信息将丢失，图像背景将变为白色")
-                            mirrored = mirrored.convert("RGB")
-                    elif output_ext not in [".png"] and mirrored.mode not in (
-                        "RGB",
-                        "L",
-                        "P",
-                    ):
-                        # 其他格式确保至少是RGB或兼容模式
-                        try:
-                            mirrored = mirrored.convert("RGB")
-                        except Exception as e:
-                            logger.warning(f"图像模式转换失败: {e}")
+                    # 确保图像模式兼容输出格式
+                    mirrored = MirrorProcessor._ensure_compatible_image_mode(
+                        mirrored, output_ext
+                    )
 
                     # 保存图像
                     if output_ext == ".png":
@@ -222,6 +211,60 @@ class MirrorProcessor:
 
         except Exception as e:
             return False, f"静态图像处理失败: {str(e)}"
+
+    @staticmethod
+    def _convert_rgba_to_rgb_for_jpeg(image: Image.Image) -> Image.Image:
+        """
+        将RGBA图像转换为RGB格式（用于JPEG保存）
+
+        Args:
+            image: PIL图像对象
+
+        Returns:
+            转换后的RGB图像
+        """
+        if image.mode != "RGBA":
+            return image
+
+        try:
+            alpha = image.getchannel("A")
+            if alpha.getextrema() == (255, 255):
+                return image.convert("RGB")
+
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            mask = image.split()[3] if len(image.split()) > 3 else alpha
+            background.paste(image, mask=mask)
+            return background
+        except (ValueError, KeyError, IndexError) as e:
+            logger.debug(f"RGBA转RGB失败，使用简单转换: {e}")
+            return image.convert("RGB")
+
+    @staticmethod
+    def _ensure_compatible_image_mode(
+        image: Image.Image,
+        output_ext: str,
+    ) -> Image.Image:
+        """
+        确保图像模式兼容输出格式
+
+        Args:
+            image: PIL图像对象
+            output_ext: 输出文件扩展名
+
+        Returns:
+            兼容的图像对象
+        """
+        if output_ext in [".jpg", ".jpeg"] and image.mode == "RGBA":
+            return MirrorProcessor._convert_rgba_to_rgb_for_jpeg(image)
+
+        if output_ext not in [".png"] and image.mode not in ("RGB", "L", "P"):
+            try:
+                return image.convert("RGB")
+            except Exception as e:
+                logger.warning(f"图像模式转换失败: {e}")
+                return image
+
+        return image
 
     @staticmethod
     def _compress_image(image: Image.Image, config: PluginConfig) -> Image.Image:
@@ -245,7 +288,7 @@ class MirrorProcessor:
                     logger.debug(f"无法获取alpha通道或检查透明度: {e}")
 
             width, height = image.size
-            max_dimension = 2048
+            max_dimension = config.max_compression_dimension
 
             if width > max_dimension or height > max_dimension:
                 ratio = min(max_dimension / width, max_dimension / height)
@@ -288,7 +331,9 @@ class MirrorProcessor:
                         config.max_gif_frames if config else 200
                     )  # GIF最大帧数限制，防止解压炸弹
                     
-                    MAX_TOTAL_PIXELS = 2000 * 2000  # 总像素数限制：约40亿像素，防止解压炸弹
+                    MAX_TOTAL_PIXELS = (
+                        config.max_total_pixels if config else 4000 * 4000
+                    )  # 总像素数限制，使用配置值
 
                     # 一次遍历同时统计和处理帧
                     frame_count = 0

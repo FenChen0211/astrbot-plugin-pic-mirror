@@ -26,11 +26,32 @@ class PicMirrorPlugin(Star):
 
         self.config_service = ConfigService(self)
         self.image_handler = ImageHandler(self.config_service)
+        self._initialized = False  # 标记是否已初始化
 
         logger.info("图像对称插件已加载")
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
 
-        self._init_task = asyncio.create_task(self.initialize())
+    async def _ensure_initialized(self):
+        """确保插件已初始化（延迟初始化）"""
+        if self._initialized:
+            return
+        
+        if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
+            await self._init_task
+        else:
+            # 创建初始化任务
+            self._init_task = asyncio.create_task(self._do_initialize())
+            await self._init_task
+        self._initialized = True
+
+    async def _do_initialize(self):
+        """实际执行初始化"""
+        try:
+            if hasattr(self, "image_handler") and self.image_handler:
+                await self.image_handler.initialize()
+            logger.info("图像对称插件初始化完成")
+        except Exception as e:
+            logger.error(f"插件初始化失败: {e}", exc_info=True)
 
     @filter.event_message_type(EventMessageType.ALL)
     async def handle_all_mirror_commands(self, event: AstrMessageEvent):
@@ -73,8 +94,7 @@ class PicMirrorPlugin(Star):
 
     async def handle_mirror_with_mode(self, event: AstrMessageEvent, mode: str):
         """处理镜像请求的统一入口"""
-        if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
-            await self._init_task
+        await self._ensure_initialized()
 
         if self.image_handler is None:
             logger.error("image_handler 未初始化")
@@ -89,8 +109,7 @@ class PicMirrorPlugin(Star):
     )
     async def mirror_help(self, event: AstrMessageEvent):
         """显示镜像插件帮助信息"""
-        if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
-            await self._init_task
+        await self._ensure_initialized()
 
         if self.config_service is None:
             logger.error("config_service 未初始化")
@@ -105,35 +124,45 @@ class PicMirrorPlugin(Star):
     #     """Bot加载完成时自动调用初始化"""
     #     await self.initialize()
 
-    async def initialize(self):
-        """插件异步初始化"""
-        try:
-            if hasattr(self, "image_handler") and self.image_handler:
-                await self.image_handler.initialize()
-            logger.info("图像对称插件初始化完成")
-        except Exception as e:
-            logger.error(f"插件初始化失败: {e}", exc_info=True)
-
     async def terminate(self):
         """插件卸载时调用"""
-        cleanup_success = False
+        handler_cleaned = False
+        termination_error = None
+        
         try:
+            # 取消初始化任务
             if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
                 self._init_task.cancel()
                 try:
                     await self._init_task
                 except asyncio.CancelledError:
                     pass
+                except Exception as e:
+                    termination_error = f"取消初始化任务失败: {e}"
 
+            # 清理 image_handler
             if hasattr(self, "image_handler") and self.image_handler is not None:
-                await self.image_handler.cleanup()
-                cleanup_success = True
+                try:
+                    await self.image_handler.cleanup()
+                    handler_cleaned = True
+                except AttributeError as e:
+                    termination_error = f"image_handler 属性访问失败: {e}"
+                except RuntimeError as e:
+                    termination_error = f"image_handler 运行时错误: {e}"
+                except Exception as e:
+                    termination_error = f"image_handler 清理失败: {e}"
             else:
                 logger.info("image_handler 未初始化，跳过清理操作")
-        except (AttributeError, RuntimeError, asyncio.CancelledError) as e:
-            logger.error(f"插件卸载时发生异常: {e}", exc_info=True)
+
+        except asyncio.CancelledError:
+            termination_error = "插件卸载被取消"
+        except RuntimeError as e:
+            termination_error = f"插件卸载运行时错误: {e}"
+        except Exception as e:
+            termination_error = f"插件卸载未知错误: {e}"
+            logger.error(f"插件卸载时发生未预期异常: {e}", exc_info=True)
         finally:
-            if cleanup_success:
-                logger.info("图像对称插件已成功卸载")
+            if termination_error:
+                logger.warning(f"插件卸载完成（部分操作失败）: {termination_error}")
             else:
-                logger.info("图像对称插件卸载完成（部分清理可能失败）")
+                logger.info("图像对称插件已成功卸载")

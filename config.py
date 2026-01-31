@@ -11,9 +11,59 @@ from astrbot.api import logger
 class PluginConfig:
     """插件配置数据类"""
 
+    # ============ 验证常量 ============
+    # 文件大小限制范围 (MB)
+    MIN_IMAGE_SIZE_MB = 1
+    MAX_IMAGE_SIZE_MB = 100
+    MIN_GIF_SIZE_MB = 1
+    MAX_GIF_SIZE_MB = 200
+    
+    # 处理参数范围
+    MIN_PROCESSING_TIMEOUT = 5   # 秒
+    MAX_PROCESSING_TIMEOUT = 300  # 秒
+    MIN_OUTPUT_QUALITY = 1
+    MAX_OUTPUT_QUALITY = 100
+    
+    # 文件保留时间范围 (小时)
+    MIN_KEEP_FILES_HOURS = 0
+    MAX_KEEP_FILES_HOURS = 168  # 7天
+    
+    # 频率限制范围 (次/分钟)
+    MIN_RATE_LIMIT = 0
+    MAX_RATE_LIMIT = 60
+    
+    # GIF帧数限制范围
+    MIN_GIF_FRAMES = 10
+    MAX_GIF_FRAMES = 1000
+    
+    # 清理超时范围 (秒)
+    MIN_CLEANUP_TIMEOUT = 1.0
+    MAX_CLEANUP_TIMEOUT = 30.0
+    
+    # 清理循环间隔范围 (秒)
+    MIN_CLEANUP_LOOP_INTERVAL = 60
+    MAX_CLEANUP_LOOP_INTERVAL = 1800  # 30分钟
+    
+    cleanup_loop_interval: int = 300  # 清理循环间隔时间（秒）
+    
     # 文件大小限制
     image_size_limit_mb: int = 10  # 图像文件大小限制 (MB)
     gif_size_limit_mb: int = 15  # GIF文件大小限制 (MB)
+
+    # 预检查文件大小限制 (MB)
+    MIN_PRECHECK_FILE_SIZE_MB = 10
+    MAX_PRECHECK_FILE_SIZE_MB = 500
+    precheck_file_size_mb: int = 100  # 预检查阶段文件大小限制 (MB)
+
+    # 压缩参数限制
+    MIN_MAX_DIMENSION = 512
+    MAX_MAX_DIMENSION = 8192
+    max_compression_dimension: int = 2048  # 压缩最大尺寸 (像素)
+
+    # GIF总像素限制
+    MIN_MAX_TOTAL_PIXELS = 500 * 500  # 2500万像素
+    MAX_MAX_TOTAL_PIXELS = 10000 * 10000  # 1亿像素
+    max_total_pixels: int = 4000 * 4000  # GIF总像素限制 (约16亿像素)
 
     # 处理参数
     processing_timeout: int = 30  # 处理超时时间 (秒)
@@ -47,6 +97,11 @@ class PluginConfig:
     def max_gif_size_bytes(self) -> int:
         """获取最大GIF文件大小 (字节)"""
         return self.gif_size_limit_mb * 1024 * 1024
+
+    @property
+    def precheck_file_size_bytes(self) -> int:
+        """获取预检查文件大小限制 (字节)"""
+        return self.precheck_file_size_mb * 1024 * 1024
 
     @property
     def rate_limit_enabled(self) -> bool:
@@ -91,6 +146,10 @@ class PluginConfig:
             config = cls(
                 image_size_limit_mb=safe_get("image_size_limit_mb", 10, int),
                 gif_size_limit_mb=safe_get("gif_size_limit_mb", 15, int),
+                precheck_file_size_mb=safe_get("precheck_file_size_mb", 100, int),
+                max_compression_dimension=safe_get("max_compression_dimension", 2048, int),
+                max_total_pixels=safe_get("max_total_pixels", 4000 * 4000, int),
+                cleanup_loop_interval=safe_get("cleanup_loop_interval", 300, int),
                 processing_timeout=safe_get("processing_timeout", 30, int),
                 output_quality=safe_get("output_quality", 85, int),
                 enable_gif=safe_get("enable_gif", True, bool),
@@ -100,6 +159,8 @@ class PluginConfig:
                 keep_files_hours=safe_get("keep_files_hours", 1, int),
                 enable_at_avatar=safe_get("enable_at_avatar", True, bool),
                 rate_limit_per_minute=safe_get("rate_limit_per_minute", 10, int),
+                max_gif_frames=safe_get("max_gif_frames", 200, int),
+                cleanup_timeout=safe_get("cleanup_timeout", 5.0, float),
             )
             config.validate()
             return config
@@ -114,16 +175,29 @@ class PluginConfig:
         验证配置值是否在有效范围内
         如果配置无效则抛出 ValueError
         """
-        if not (1 <= self.image_size_limit_mb <= 100):
-            raise ValueError("image_size_limit_mb must be between 1-100 MB")
-        if not (1 <= self.gif_size_limit_mb <= 200):
-            raise ValueError("gif_size_limit_mb must be between 1-200 MB")
-        if not (5 <= self.processing_timeout <= 300):
-            raise ValueError("processing_timeout must be between 5-300 seconds")
-        if not (1 <= self.output_quality <= 100):
-            raise ValueError("output_quality must be between 1-100")
-        if self.keep_files_hours < 0:
-            raise ValueError("keep_files_hours cannot be negative")
-        if not (0 <= self.rate_limit_per_minute <= 60):
-            raise ValueError("rate_limit_per_minute must be between 0-60")
-        # 布尔值不需要验证
+        if not (self.MIN_IMAGE_SIZE_MB <= self.image_size_limit_mb <= self.MAX_IMAGE_SIZE_MB):
+            raise ValueError(f"image_size_limit_mb must be between {self.MIN_IMAGE_SIZE_MB}-{self.MAX_IMAGE_SIZE_MB} MB")
+        if not (self.MIN_GIF_SIZE_MB <= self.gif_size_limit_mb <= self.MAX_GIF_SIZE_MB):
+            raise ValueError(f"gif_size_limit_mb must be between {self.MIN_GIF_SIZE_MB}-{self.MAX_GIF_SIZE_MB} MB")
+        if not (self.MIN_PRECHECK_FILE_SIZE_MB <= self.precheck_file_size_mb <= self.MAX_PRECHECK_FILE_SIZE_MB):
+            raise ValueError(f"precheck_file_size_mb must be between {self.MIN_PRECHECK_FILE_SIZE_MB}-{self.MAX_PRECHECK_FILE_SIZE_MB} MB")
+        if not (self.MIN_MAX_DIMENSION <= self.max_compression_dimension <= self.MAX_MAX_DIMENSION):
+            raise ValueError(f"max_compression_dimension must be between {self.MIN_MAX_DIMENSION}-{self.MAX_MAX_DIMENSION} pixels")
+        if not (self.MIN_MAX_TOTAL_PIXELS <= self.max_total_pixels <= self.MAX_MAX_TOTAL_PIXELS):
+            raise ValueError(f"max_total_pixels must be between {self.MIN_MAX_TOTAL_PIXELS}-{self.MAX_MAX_TOTAL_PIXELS}")
+        if not (self.MIN_CLEANUP_TIMEOUT <= self.cleanup_timeout <= self.MAX_CLEANUP_TIMEOUT):
+            raise ValueError(f"cleanup_timeout must be between {self.MIN_CLEANUP_TIMEOUT}-{self.MAX_CLEANUP_TIMEOUT} seconds")
+        if not (self.MIN_CLEANUP_LOOP_INTERVAL <= self.cleanup_loop_interval <= self.MAX_CLEANUP_LOOP_INTERVAL):
+            raise ValueError(f"cleanup_loop_interval must be between {self.MIN_CLEANUP_LOOP_INTERVAL}-{self.MAX_CLEANUP_LOOP_INTERVAL} seconds")
+        if not (self.MIN_PROCESSING_TIMEOUT <= self.processing_timeout <= self.MAX_PROCESSING_TIMEOUT):
+            raise ValueError(f"processing_timeout must be between {self.MIN_PROCESSING_TIMEOUT}-{self.MAX_PROCESSING_TIMEOUT} seconds")
+        if not (self.MIN_OUTPUT_QUALITY <= self.output_quality <= self.MAX_OUTPUT_QUALITY):
+            raise ValueError(f"output_quality must be between {self.MIN_OUTPUT_QUALITY}-{self.MAX_OUTPUT_QUALITY}")
+        if not (self.MIN_KEEP_FILES_HOURS <= self.keep_files_hours <= self.MAX_KEEP_FILES_HOURS):
+            raise ValueError(f"keep_files_hours must be between {self.MIN_KEEP_FILES_HOURS}-{self.MAX_KEEP_FILES_HOURS} hours")
+        if not (self.MIN_RATE_LIMIT <= self.rate_limit_per_minute <= self.MAX_RATE_LIMIT):
+            raise ValueError(f"rate_limit_per_minute must be between {self.MIN_RATE_LIMIT}-{self.MAX_RATE_LIMIT}")
+        if not (self.MIN_GIF_FRAMES <= self.max_gif_frames <= self.MAX_GIF_FRAMES):
+            raise ValueError(f"max_gif_frames must be between {self.MIN_GIF_FRAMES}-{self.MAX_GIF_FRAMES}")
+        if not (self.MIN_CLEANUP_TIMEOUT <= self.cleanup_timeout <= self.MAX_CLEANUP_TIMEOUT):
+            raise ValueError(f"cleanup_timeout must be between {self.MIN_CLEANUP_TIMEOUT}-{self.MAX_CLEANUP_TIMEOUT} seconds")

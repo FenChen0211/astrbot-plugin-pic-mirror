@@ -28,6 +28,11 @@ class FileUtils:
     DEFAULT_IMAGE_SIZE_LIMIT = 10 * 1024 * 1024  # 10MB
     DEFAULT_GIF_SIZE_LIMIT = 15 * 1024 * 1024  # 15MB
 
+    # URL/Base64数据长度阈值，用于决定是否使用MD5摘要
+    # 1000字节以下的短数据可直接用作文件名输入
+    # 长数据使用MD5摘要避免文件名过长和性能问题
+    URL_LENGTH_THRESHOLD = 1000
+
     def __init__(self, plugin_name: str = "astrbot-plugin-pic-mirror"):
         self.data_dir = FileUtils.ensure_data_dir(plugin_name)
 
@@ -124,9 +129,7 @@ class FileUtils:
         Returns:
             str: 生成的文件名
         """
-        # Base64数据优化：避免处理完整大型数据
-        if len(original_url) > 1000:
-            # 大型数据：使用MD5摘要代替完整字符串
+        if len(original_url) > self.URL_LENGTH_THRESHOLD:
             content_hash = hashlib.md5(original_url.encode()).hexdigest()[:16]
             hash_input = f"{content_hash}_{mode}"
         else:
@@ -288,6 +291,9 @@ class FileUtils:
             and data[4:8] == magic["avif"][0]
             and data[8:12] in magic["avif"][2]
         ):
+            # AVIF 文件格式基于 ISOBMFF (ISO Base Media File Format)
+            # 偏移4-7字节: ftyp (File Type Box标识)
+            # 偏移8-11字节: brand (格式标识，avif或avis)
             return ".avif"
 
         if data[:4] in magic["ico"][0]:

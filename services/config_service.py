@@ -13,14 +13,11 @@ from ..constants import _load_version
 class ConfigService:
     """配置服务类"""
 
-    # 从 constants.py 加载版本号
     PLUGIN_VERSION = _load_version()
 
-    def __init__(self, plugin_instance, config_dict=None):
+    def __init__(self, plugin_instance):
         self.plugin = plugin_instance
         self._config = None  # 延迟加载
-        # 保存可能传入的配置字典，但_load_config会优先使用
-        self._config_dict = config_dict
 
     def _load_config(self) -> PluginConfig:
         """简化版本 - 只用标准方式"""

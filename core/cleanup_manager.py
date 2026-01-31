@@ -15,6 +15,14 @@ from ..constants import PLUGIN_NAME
 class CleanupManager:
     """清理管理器"""
 
+    TEMP_FILE_PREFIXES = [
+        "mirror_tmp_",
+        "mirror_temp_",
+        "mirror_avatar_",
+        "mirror_downloaded_",
+        "mirror_base64_",
+    ]
+
     def __init__(self, config, plugin_name: str = None):
         self.config = config
         self.plugin_name = plugin_name or PLUGIN_NAME  # 默认值
@@ -54,9 +62,12 @@ class CleanupManager:
 
             # 使用 wait_for 来响应停止信号
             try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=300
-                )  # 5分钟检查一次
+                timeout = (
+                    self.config.cleanup_loop_interval
+                    if hasattr(self.config, "cleanup_loop_interval")
+                    else 300
+                )
+                await asyncio.wait_for(self._stop_event.wait(), timeout=timeout)
                 break  # 收到停止信号，退出循环
             except asyncio.TimeoutError:
                 continue  # 超时，继续下一次清理
@@ -89,37 +100,52 @@ class CleanupManager:
                 if item in self.cleanup_queue:
                     self.cleanup_queue.remove(item)
 
+    def _validate_cleanup_path(self, file_path: Path) -> bool:
+        """
+        验证清理路径的安全性
+
+        Args:
+            file_path: 待验证的文件路径
+
+        Returns:
+            bool: 路径是否安全
+        """
+        if not self.plugin_name:
+            return True
+
+        try:
+            plugin_data_dir = StarTools.get_data_dir(self.plugin_name)
+            safe_path = (plugin_data_dir / file_path).resolve()
+            data_dir_resolved = plugin_data_dir.resolve()
+
+            if not safe_path.is_relative_to(data_dir_resolved):
+                logger.error(
+                    f"[清理管理器] 拒绝清理外部路径（路径遍历攻击尝试）: {file_path}"
+                )
+                return False
+
+            if safe_path.is_symlink():
+                try:
+                    real_path = safe_path.resolve(strict=True)
+                    if not real_path.is_relative_to(data_dir_resolved):
+                        logger.error(f"拒绝清理符号链接指向的外部路径: {file_path}")
+                        return False
+                except (FileNotFoundError, RuntimeError) as e:
+                    logger.error(f"符号链接解析失败: {e}")
+                    return False
+
+            return True
+        except Exception as e:
+            logger.error(
+                f"[清理管理器] 路径校验失败（原因: {type(e).__name__}: {e}），拒绝执行清理以确保安全",
+                exc_info=True,
+            )
+            return False
+
     def schedule_cleanup(self, file_path: Path, keep_hours: int):
         """安排文件清理 - 安全版本"""
-        if self.plugin_name:
-            try:
-                plugin_data_dir = StarTools.get_data_dir(self.plugin_name)
-                # 构建安全路径
-                safe_path = (plugin_data_dir / file_path).resolve()
-                data_dir_resolved = plugin_data_dir.resolve()
-
-                if safe_path.is_relative_to(data_dir_resolved):
-                    # 确保路径在数据目录内且没有符号链接逃逸
-                    if safe_path.is_symlink():
-                        try:
-                            real_path = safe_path.resolve(strict=True)
-                            if not real_path.is_relative_to(data_dir_resolved):
-                                logger.error(f"拒绝清理符号链接指向的外部路径: {file_path}")
-                                return
-                        except (FileNotFoundError, RuntimeError) as e:
-                            logger.error(f"符号链接解析失败: {e}")
-                            return
-                else:
-                    logger.error(
-                        f"[清理管理器] 拒绝清理外部路径（路径遍历攻击尝试）: {file_path}"
-                    )
-                    return
-            except Exception as e:
-                logger.error(
-                    f"[清理管理器] 路径校验失败（原因: {type(e).__name__}: {e}），拒绝执行清理以确保安全",
-                    exc_info=True,
-                )
-                return
+        if not self._validate_cleanup_path(file_path):
+            return
 
         if keep_hours <= 0:
             task = asyncio.create_task(self._cleanup_immediately(file_path))
@@ -191,14 +217,20 @@ class CleanupManager:
     def cleanup_temp_dirs(self):
         """清理临时目录"""
         try:
-            # 清理临时目录中的临时文件
             temp_dir = Path(tempfile.gettempdir())
-            for temp_file in temp_dir.glob("mirror_*"):
-                if temp_file.is_file():
-                    try:
-                        temp_file.unlink()
-                        logger.info(f"清理临时文件: {temp_file.name}")
-                    except Exception as e:
-                        logger.debug(f"无法删除临时文件 {temp_file.name}: {e}")
+            cleaned_count = 0
+
+            for prefix in self.TEMP_FILE_PREFIXES:
+                pattern = f"{prefix}*"
+                for temp_file in temp_dir.glob(pattern):
+                    if temp_file.is_file():
+                        try:
+                            temp_file.unlink()
+                            cleaned_count += 1
+                        except Exception as e:
+                            logger.debug(f"无法删除临时文件 {temp_file.name}: {e}")
+
+            if cleaned_count > 0:
+                logger.info(f"清理临时目录完成，共清理 {cleaned_count} 个文件")
         except Exception as e:
             logger.warning(f"清理临时目录时出错: {e}")
