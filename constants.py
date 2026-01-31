@@ -19,7 +19,7 @@ def _load_version() -> str:
                 if version.startswith("v"):
                     version = version[1:]
                 return version
-    except Exception as e:
+    except (FileNotFoundError, yaml.YAMLError, PermissionError) as e:
         from astrbot.api import logger
 
         logger.warning(f"加载版本信息失败，使用默认版本: {e}")

@@ -25,8 +25,15 @@ class CleanupManager:
 
     def _track_task(self, task: asyncio.Task):
         """跟踪异步任务，确保cleanup_all时能正确取消"""
+        def done_callback(t: asyncio.Task):
+            self._pending_tasks.discard(t)
+        
+        # 如果任务已完成，直接从集合中移除（避免竞态条件）
+        if task.done():
+            return
+        
         self._pending_tasks.add(task)
-        task.add_done_callback(lambda t: self._pending_tasks.discard(t))
+        task.add_done_callback(done_callback)
 
     async def start(self):
         """手动启动清理任务"""
@@ -93,9 +100,13 @@ class CleanupManager:
                 if safe_path.is_relative_to(data_dir_resolved):
                     # 确保路径在数据目录内且没有符号链接逃逸
                     if safe_path.is_symlink():
-                        real_path = safe_path.readlink().resolve()
-                        if not real_path.is_relative_to(data_dir_resolved):
-                            logger.error(f"拒绝清理符号链接指向的外部路径: {file_path}")
+                        try:
+                            real_path = safe_path.resolve(strict=True)
+                            if not real_path.is_relative_to(data_dir_resolved):
+                                logger.error(f"拒绝清理符号链接指向的外部路径: {file_path}")
+                                return
+                        except (FileNotFoundError, RuntimeError) as e:
+                            logger.error(f"符号链接解析失败: {e}")
                             return
                 else:
                     logger.error(

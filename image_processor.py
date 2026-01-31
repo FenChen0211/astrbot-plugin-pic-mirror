@@ -190,6 +190,7 @@ class MirrorProcessor:
                             mirrored = background
                         except Exception as e:
                             logger.warning(f"JPEG图像RGBA转RGB失败: {e}")
+                            logger.warning("透明度信息将丢失，图像背景将变为白色")
                             mirrored = mirrored.convert("RGB")
                     elif output_ext not in [".png"] and mirrored.mode not in (
                         "RGB",
@@ -286,6 +287,8 @@ class MirrorProcessor:
                     MAX_FRAMES = (
                         config.max_gif_frames if config else 200
                     )  # GIF最大帧数限制，防止解压炸弹
+                    
+                    MAX_TOTAL_PIXELS = 2000 * 2000  # 总像素数限制：约40亿像素，防止解压炸弹
 
                     # 一次遍历同时统计和处理帧
                     frame_count = 0
@@ -299,6 +302,18 @@ class MirrorProcessor:
                             return (
                                 None,
                                 f"GIF帧数过多（{frame_count} > {MAX_FRAMES}），可能存在安全风险",
+                            )
+
+                        # 检查总像素数（帧数 × 单帧像素）
+                        frame_pixels = frame.width * frame.height
+                        total_pixels = frame_count * frame_pixels
+                        if total_pixels > MAX_TOTAL_PIXELS:
+                            logger.error(
+                                f"GIF总像素数过多，可能存在解压炸弹风险: {total_pixels}像素"
+                            )
+                            return (
+                                None,
+                                f"GIF总像素数过多（{total_pixels / 10000 / 10000:.1f}亿像素），可能存在安全风险",
                             )
 
                         # 记录每帧持续时间

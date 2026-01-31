@@ -327,11 +327,6 @@ class NetworkUtils:
             logger.warning(f"URL安全检查失败 {url}: {e}")
             return False
 
-    async def cleanup(self):
-        """清理资源，关闭会话"""
-        if self.session and not self.session.closed:
-            await self.session.close()
-
     async def download_image(self, url: str) -> Optional[bytes]:
         """
         下载图片（防DNS Rebinding版本 - 使用固定DNS解析器解决SSL证书问题）

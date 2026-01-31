@@ -76,6 +76,8 @@ class ImageHandler:
             self._cleanup_task = asyncio.create_task(
                 self._periodic_cleanup_rate_limits()
             )
+            # 使用cleanup_manager跟踪任务，确保卸载时能正确取消
+            self.cleanup_manager._track_task(self._cleanup_task)
             logger.info("清理管理器已启动")
         except Exception as e:
             logger.error(f"清理管理器启动失败: {e}", exc_info=True)
@@ -299,12 +301,13 @@ class ImageHandler:
             if base64_data.startswith("base64://"):
                 base64_data = base64_data[len("base64://") :]
 
-            # 1. 检查base64字符串长度
-            MAX_BASE64_LENGTH = int(
-                20 * 1024 * 1024 * 4 / 3 * 1.05
-            )  # 20MB二进制数据对应Base64长度，加5%余量
+            # 1. 检查base64字符串长度（使用配置的最大值，防止绕过）
+            max_size = (
+                self.config.max_image_size_bytes if self.config else 10 * 1024 * 1024
+            )
+            MAX_BASE64_LENGTH = int(max_size * 4 / 3 * 1.05)  # Base64编码会增加约33%长度
             if len(base64_data) > MAX_BASE64_LENGTH:
-                logger.error(f"Base64数据过长: {len(base64_data)}字符")
+                logger.error(f"Base64数据过长: {len(base64_data)}字符 > {MAX_BASE64_LENGTH}字符")
                 return None
 
             # 将解码操作放入线程池避免阻塞
@@ -380,16 +383,19 @@ class ImageHandler:
             return None
 
     def _cleanup_input_file(self, file_path: Path):
-        """清理输入文件 - 使用类常量前缀确保安全"""
+        """清理输入文件 - 使用前缀列表确保安全"""
         if not file_path or not file_path.exists():
             return
 
         try:
             if file_path.parent == self.data_dir:
                 filename = file_path.name.lower()
-                if self.TEMP_FILE_PATTERN.match(filename):
-                    file_path.unlink()
-                    logger.info(f"清理临时输入文件: {file_path.name}")
+                # 使用前缀列表检查，灵活可控
+                for prefix in self.TEMP_FILE_PREFIXES:
+                    if filename.startswith(prefix):
+                        file_path.unlink()
+                        logger.info(f"清理临时输入文件: {file_path.name}")
+                        return
         except Exception as e:
             logger.warning(f"清理输入文件失败 {file_path}: {e}")
 

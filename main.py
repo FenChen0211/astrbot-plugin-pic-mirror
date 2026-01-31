@@ -67,30 +67,7 @@ class PicMirrorPlugin(Star):
 
     async def handle_mirror_with_mode(self, event: AstrMessageEvent, mode: str):
         """处理镜像请求的统一入口"""
-        # 审核说明: 根据审核要求等待初始化完成，避免竞态条件
-        if (
-            hasattr(self, "_init_task")
-            and self._init_task
-            and not self._init_task.done()
-        ):
-            await self._init_task
-
-        if self.image_handler is None:
-            logger.error("image_handler 未初始化")
-            yield event.plain_result("❌ 插件尚未初始化完成，请稍后再试")
-            return
-
-        async for result in self.image_handler.process_mirror(event, mode):
-            yield result
-
-    async def handle_mirror_with_mode(self, event: AstrMessageEvent, mode: str):
-        """处理镜像请求的统一入口"""
-        # 审核说明: 根据审核要求等待初始化完成，避免竞态条件
-        if (
-            hasattr(self, "_init_task")
-            and self._init_task
-            and not self._init_task.done()
-        ):
+        if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
             await self._init_task
 
         if self.image_handler is None:
@@ -103,9 +80,12 @@ class PicMirrorPlugin(Star):
 
     @filter.command(
         "对称帮助", alias={"mirror help", "镜像帮助"}
-    )  # ✅ 移除重复的"对称帮助"
+    )
     async def mirror_help(self, event: AstrMessageEvent):
         """显示镜像插件帮助信息"""
+        if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
+            await self._init_task
+
         if self.config_service is None:
             logger.error("config_service 未初始化")
             yield event.plain_result("❌ 插件尚未初始化完成，请稍后再试")
@@ -130,12 +110,9 @@ class PicMirrorPlugin(Star):
 
     async def terminate(self):
         """插件卸载时调用"""
+        cleanup_success = False
         try:
-            if (
-                hasattr(self, "_init_task")
-                and self._init_task
-                and not self._init_task.done()
-            ):
+            if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
                 self._init_task.cancel()
                 try:
                     await self._init_task
@@ -144,9 +121,13 @@ class PicMirrorPlugin(Star):
 
             if hasattr(self, "image_handler") and self.image_handler is not None:
                 await self.image_handler.cleanup()
+                cleanup_success = True
             else:
-                logger.warning("image_handler 未初始化，跳过清理操作")
+                logger.info("image_handler 未初始化，跳过清理操作")
         except (AttributeError, RuntimeError, asyncio.CancelledError) as e:
             logger.error(f"插件卸载时发生异常: {e}", exc_info=True)
         finally:
-            logger.info("图像对称插件正在卸载...")
+            if cleanup_success:
+                logger.info("图像对称插件已成功卸载")
+            else:
+                logger.info("图像对称插件卸载完成（部分清理可能失败）")
