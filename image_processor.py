@@ -245,7 +245,7 @@ class MirrorProcessor:
 
             return image
         except (ValueError, OSError, MemoryError) as e:
-            logger.debug(f"图像压缩失败，返回原图: {e}")
+            logger.warning(f"图像压缩失败，返回原图: {type(e).__name__}: {e}")
             return image
 
     @staticmethod
@@ -271,7 +271,7 @@ class MirrorProcessor:
                     if not MirrorProcessor._check_image_size(img):
                         return None, f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素"
 
-                    MAX_FRAMES = 200  # GIF最大帧数限制，防止解压炸弹
+                    MAX_FRAMES = config.max_gif_frames if config else 200  # GIF最大帧数限制，防止解压炸弹
 
                     # 一次遍历同时统计和处理帧
                     frame_count = 0

@@ -4,9 +4,11 @@
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import tempfile
 import time
+import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 from astrbot.api import logger
@@ -37,6 +39,8 @@ class ImageHandler:
         "mirror_downloaded_",
         "mirror_base64_",
     ]
+    
+    TEMP_FILE_PATTERN = re.compile(r'^mirror_(tmp|temp|avatar|downloaded|base64)_.*')
 
     def __init__(self, config_service, plugin_name: str = None):
         self.config_service = config_service
@@ -58,6 +62,9 @@ class ImageHandler:
         # 频率限制相关初始化
         self._user_request_times = {}  # 格式: {user_id: [timestamp1, timestamp2...]}
         self._rate_limit_lock = asyncio.Lock()
+        
+        # 初始化清理任务
+        self._cleanup_task = None
 
     @property
     def rate_limit_lock(self):
@@ -68,56 +75,57 @@ class ImageHandler:
         """异步初始化清理管理器"""
         try:
             await self.cleanup_manager.start()
+            # 启动定期清理频率限制记录的任务
+            self._cleanup_task = asyncio.create_task(self._periodic_cleanup_rate_limits())
             logger.info("清理管理器已启动")
         except Exception as e:
             logger.error(f"清理管理器启动失败: {e}", exc_info=True)
             # 即使启动失败，插件仍可运行，只是没有定时清理
 
-    async def check_rate_limit(self, user_id: str) -> Tuple[bool, Optional[str]]:
-        """
-        检查用户是否超过频率限制
-
-        Args:
-            user_id: 用户ID
-
-        Returns:
-            (是否允许, 错误信息)
-        """
-        if not self.config.rate_limit_enabled:
-            return True, None
-
-        async with self.rate_limit_lock:
-            current_time = time.time()
-            one_minute_ago = current_time - 60
-
-            request_times = self._user_request_times.get(user_id, [])
-            recent_requests = [t for t in request_times if t > one_minute_ago]
-
-            if len(recent_requests) >= self.config.rate_limit_per_minute:
-                oldest_request = min(recent_requests)
-                wait_seconds = max(1, int(60 - (current_time - oldest_request)))
-                return False, f"请求过于频繁，请等待 {wait_seconds} 秒后再试"
-
-            recent_requests.append(current_time)
-            self._user_request_times[user_id] = recent_requests
-
+    async def _periodic_cleanup_rate_limits(self):
+        """定期清理过期的频率限制记录"""
+        while True:
+            await asyncio.sleep(300)  # 每5分钟清理一次
             self._cleanup_old_rate_limit_records()
 
+    async def check_rate_limit(self, user_id: str) -> Tuple[bool, Optional[str]]:
+        """检查用户请求频率限制"""
+        current_time = time.time()
+        window_start = current_time - 60  # 一分钟窗口
+
+        async with self._rate_limit_lock:
+            # 获取该用户最近一分钟内的请求记录
+            user_requests = self._user_request_times.get(user_id, [])
+            
+            # 过滤掉一分钟前的请求
+            recent_requests = [req_time for req_time in user_requests if req_time >= window_start]
+            self._user_request_times[user_id] = recent_requests
+
+            # 检查是否超过限制
+            if len(recent_requests) >= self.config.rate_limit_per_minute:
+                remaining_time = 60 - (current_time - min(recent_requests))
+                return False, f"请求过于频繁，请{int(remaining_time)}秒后再试"
+
+            # 添加当前请求记录
+            self._user_request_times[user_id].append(current_time)
             return True, None
 
     def _cleanup_old_rate_limit_records(self):
         """清理过期的频率限制记录"""
         current_time = time.time()
-        one_minute_ago = current_time - 60
+        window_start = current_time - 60  # 一分钟窗口
 
-        for user_id in list(self._user_request_times.keys()):
-            request_times = self._user_request_times[user_id]
-            recent_requests = [t for t in request_times if t > one_minute_ago]
+        with contextlib.suppress(Exception):  # 防止并发问题
+            # 创建新字典以避免在迭代时修改
+            new_user_requests = {}
+            for user_id, requests in self._user_request_times.items():
+                recent_requests = [req_time for req_time in requests if req_time >= window_start]
+                if recent_requests:  # 只保留仍有记录的用户
+                    new_user_requests[user_id] = recent_requests
+            
+            self._user_request_times = new_user_requests
 
-            if recent_requests:
-                self._user_request_times[user_id] = recent_requests
-            else:
-                del self._user_request_times[user_id]
+
 
     async def process_mirror(self, event, mode: str):
         """
@@ -289,7 +297,7 @@ class ImageHandler:
                 base64_data = base64_data[len("base64://") :]
 
             # 1. 检查base64字符串长度
-            MAX_BASE64_LENGTH = 20 * 1024 * 1024 * 4 // 3  # 对应20MB原始数据
+            MAX_BASE64_LENGTH = int(20 * 1024 * 1024 * 4 / 3 * 1.05)  # 20MB二进制数据对应Base64长度，加5%余量
             if len(base64_data) > MAX_BASE64_LENGTH:
                 logger.error(f"Base64数据过长: {len(base64_data)}字符")
                 return None
@@ -371,7 +379,7 @@ class ImageHandler:
         try:
             if file_path.parent == self.data_dir:
                 filename = file_path.name.lower()
-                if any(filename.startswith(prefix) for prefix in self.TEMP_FILE_PREFIXES):
+                if self.TEMP_FILE_PATTERN.match(filename):
                     file_path.unlink()
                     logger.info(f"清理临时输入文件: {file_path.name}")
         except Exception as e:
@@ -416,6 +424,9 @@ class ImageHandler:
 
     async def cleanup(self):
         await self.cleanup_manager.cleanup_all()
+        
+        # 清理临时目录
+        self.cleanup_manager.cleanup_temp_dirs()
 
         # 关闭网络连接
         if hasattr(self.network_utils, "cleanup"):
@@ -425,3 +436,11 @@ class ImageHandler:
         self.message_utils = None
         self.file_utils = None
         self.avatar_service = None
+        
+        # 取消清理任务
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass

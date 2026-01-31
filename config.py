@@ -32,6 +32,12 @@ class PluginConfig:
     # 频率限制
     rate_limit_per_minute: int = 10  # 每个用户每分钟最多请求次数
 
+    # GIF设置
+    max_gif_frames: int = 200  # GIF最大帧数限制
+
+    # 清理设置
+    cleanup_timeout: float = 5.0  # 清理任务超时时间（秒）
+
     @property
     def max_image_size_bytes(self) -> int:
         """获取最大图像文件大小 (字节)"""

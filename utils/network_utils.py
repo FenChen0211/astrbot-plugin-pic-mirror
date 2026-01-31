@@ -174,7 +174,18 @@ class NetworkUtils:
             ipaddress.ip_address(hostname)
             return True
         except ValueError:
-            return False
+            pass
+        
+        # 检测整数格式的IPv4
+        try:
+            ip_int = int(hostname)
+            if 0 <= ip_int <= 0xFFFFFFFF:  # 32位整数范围
+                ipaddress.ip_address(ip_int)
+                return True
+        except (ValueError, ipaddress.AddressValueError):
+            pass
+        
+        return False
 
     def _is_link_local_ip(self, ip_str: str) -> bool:
         """检查是否为链路本地地址 (169.254.x.x)"""
@@ -436,7 +447,7 @@ class NetworkUtils:
             except Exception as e:
                 if attempt == retries:
                     logger.debug(f"下载失败 {url} (尝试{attempt + 1}次): {e}")
-                await asyncio.sleep(0.5)  # 重试前等待
+                await asyncio.sleep(0.5 * (2 ** attempt))  # 指数退避: 0.5s, 1s, 2s
 
         return None
 

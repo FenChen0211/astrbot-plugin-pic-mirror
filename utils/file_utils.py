@@ -28,6 +28,9 @@ class FileUtils:
     DEFAULT_IMAGE_SIZE_LIMIT = 10 * 1024 * 1024  # 10MB
     DEFAULT_GIF_SIZE_LIMIT = 15 * 1024 * 1024  # 15MB
 
+    def __init__(self, plugin_name: str = "astrbot-plugin-pic-mirror"):
+        self.data_dir = FileUtils.ensure_data_dir(plugin_name)
+
     MAGIC_BYTES = {
         "gif": ([b"GIF87a", b"GIF89a"], 6),
         "png": (b"\x89PNG\r\n\x1a\n", 8),
@@ -91,8 +94,7 @@ class FileUtils:
         ext = FileUtils.get_file_extension(url)
         return ext in FileUtils.SUPPORTED_FORMATS if ext else False
 
-    @staticmethod
-    def generate_filename(original_url: str, mode: str) -> str:
+    def generate_filename(self, original_url: str, mode: str) -> str:
         """
         生成唯一的文件名（Base64优化版）
 
@@ -128,7 +130,14 @@ class FileUtils:
             else:
                 ext = ".png"
 
-        return f"mirror_{mode}_{file_hash}{ext}"
+        filename = f"mirror_{mode}_{file_hash}{ext}"
+        # 检测碰撞
+        counter = 0
+        original_filename = filename
+        while (self.data_dir / filename).exists():
+            counter += 1
+            filename = f"mirror_{mode}_{file_hash}_{counter}{ext}"
+        return filename
 
     @staticmethod
     def validate_image_size(
@@ -243,11 +252,11 @@ class FileUtils:
         if data[:8] == magic["png"][0]:
             return ".png"
 
-        if data[:3] == magic["jpeg"][0]:
-            return ".jpg"
-
         if data[:12] == magic["jpeg2000"][0]:
             return ".jp2"
+
+        if data[:3] == magic["jpeg"][0]:
+            return ".jpg"
 
         if data[:4] == magic["webp"][0] and data[8:12] == magic["webp"][2]:
             return ".webp"

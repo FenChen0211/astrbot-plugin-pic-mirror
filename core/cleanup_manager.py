@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
 from astrbot.api import logger
@@ -88,8 +89,17 @@ class CleanupManager:
         if self.plugin_name:
             try:
                 plugin_data_dir = StarTools.get_data_dir(self.plugin_name)
-                if file_path.resolve().absolute().is_relative_to(plugin_data_dir.resolve().absolute()):
-                    pass
+                # 构建安全路径
+                safe_path = (plugin_data_dir / file_path).resolve()
+                data_dir_resolved = plugin_data_dir.resolve()
+                
+                if safe_path.is_relative_to(data_dir_resolved):
+                    # 确保路径在数据目录内且没有符号链接逃逸
+                    if safe_path.is_symlink():
+                        real_path = safe_path.readlink().resolve()
+                        if not real_path.is_relative_to(data_dir_resolved):
+                            logger.error(f"拒绝清理符号链接指向的外部路径: {file_path}")
+                            return
                 else:
                     logger.error(f"[清理管理器] 拒绝清理外部路径（路径遍历攻击尝试）: {file_path}")
                     return
@@ -133,10 +143,11 @@ class CleanupManager:
 
         if self._cleanup_task and not self._cleanup_task.done():
             self._stop_event.set()
+            timeout = self.config.cleanup_timeout if hasattr(self.config, 'cleanup_timeout') else 5.0
             try:
-                await asyncio.wait_for(self._cleanup_task, timeout=5.0)
+                await asyncio.wait_for(self._cleanup_task, timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning("清理任务在5秒内未响应（可能正在处理文件或卡住），强制取消")
+                logger.warning(f"清理任务在{timeout}秒内未响应（可能正在处理文件或卡住），强制取消")
                 self._cleanup_task.cancel()
                 try:
                     await self._cleanup_task
@@ -160,3 +171,18 @@ class CleanupManager:
         self.cleanup_queue.clear()
 
         logger.info("清理管理器资源清理完成")
+
+    def cleanup_temp_dirs(self):
+        """清理临时目录"""
+        try:
+            # 清理临时目录中的临时文件
+            temp_dir = Path(tempfile.gettempdir())
+            for temp_file in temp_dir.glob("mirror_*"):
+                if temp_file.is_file():
+                    try:
+                        temp_file.unlink()
+                        logger.info(f"清理临时文件: {temp_file.name}")
+                    except Exception as e:
+                        logger.debug(f"无法删除临时文件 {temp_file.name}: {e}")
+        except Exception as e:
+            logger.warning(f"清理临时目录时出错: {e}")

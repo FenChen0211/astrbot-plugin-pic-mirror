@@ -70,8 +70,8 @@ class MessageUtils:
             logger.debug(f"总共找到 {len(image_sources)} 个图像源")
             return image_sources
 
-        except Exception as e:
-            logger.error(f"提取图像源失败: {e}", exc_info=True)
+        except (AttributeError, TypeError, KeyError) as e:
+            logger.error(f"提取图像源失败: {type(e).__name__}: {e}", exc_info=True)
             return []
 
     @staticmethod

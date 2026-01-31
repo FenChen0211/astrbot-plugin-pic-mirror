@@ -20,7 +20,7 @@ def _load_version() -> str:
                 return version
     except Exception as e:
         from astrbot.api import logger
-        logger.debug(f"加载版本信息失败，使用默认版本: {e}")
+        logger.warning(f"加载版本信息失败，使用默认版本: {e}")
     return "1.2.0"
 
 PLUGIN_VERSION = _load_version()
