@@ -347,7 +347,7 @@ class NetworkUtils:
         safe_ip, hostname = safe_info
 
         # 2. 使用自定义DNS解析器（保持原始URL，避免SSL证书问题）
-        # 注意：每次请求创建新的 Session 和 Connector，避免内存泄漏和 DNS Pinning 问题
+        # 复用基础Session，但为每个请求使用独立的Connector以避免DNS Pinning
         try:
             parsed = urlparse(url)
 
@@ -363,8 +363,13 @@ class NetworkUtils:
 
             timeout = aiohttp.ClientTimeout(total=self.timeout)
 
-            # 每次请求创建新的 Session（避免缓存导致的内存泄漏和DNS Pinning问题）
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            # 复用基础 Session，避免频繁创建 Session 的开销
+            session = await self._get_base_session()
+            
+            # 临时替换 session.connector 为自定义 resolver 的 connector
+            original_connector = session.connector
+            try:
+                session._connector = connector
                 async with session.get(url) as response:
                     if response.status != 200:
                         logger.error(f"下载失败，状态码: {response.status}")
@@ -380,6 +385,9 @@ class NetworkUtils:
 
                     logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
                     return bytes(buffer)
+            finally:
+                # 恢复原始 connector
+                session._connector = original_connector
 
         except asyncio.TimeoutError:
             logger.error(f"下载超时: {url}")

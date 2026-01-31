@@ -61,24 +61,43 @@ class FileUtils:
     @staticmethod
     def get_file_extension(url_or_path: str) -> Optional[str]:
         """
-        从URL或路径中提取文件扩展名（改进版）
+        从URL或路径中提取文件扩展名（增强版，支持参数提取）
 
         Args:
             url_or_path: URL或文件路径
 
         Returns:
-            小写的文件扩展名，如'.jpg'、'.gif'
+            小写的文件扩展名，如'.jpg'、'.gif'，未找到返回None
         """
-        # 移除查询参数
-        path = url_or_path.split("?")[0]
-
-        # 提取扩展名
-        match = re.search(r"\.([a-zA-Z0-9]+)$", path)
-        if match:
-            ext = f".{match.group(1).lower()}"
-            # 确保扩展名是我们支持的格式
-            return ext
-        return None
+        try:
+            from urllib.parse import urlparse, parse_qs
+            
+            parsed = urlparse(url_or_path)
+            
+            # 1. 优先从路径中提取扩展名
+            path = parsed.path
+            match = re.search(r"\.([a-zA-Z0-9]+)$", path)
+            if match:
+                ext = f".{match.group(1).lower()}"
+                if ext in FileUtils.SUPPORTED_FORMATS:
+                    return ext
+            
+            # 2. 尝试从查询参数中提取常见格式参数
+            query_params = parse_qs(parsed.query)
+            for param_name in ["format", "type", "ext"]:
+                if param_name in query_params:
+                    param_value = query_params[param_name][0].lower()
+                    if param_value.startswith("."):
+                        if param_value in FileUtils.SUPPORTED_FORMATS:
+                            return param_value
+                    else:
+                        ext = f".{param_value}"
+                        if ext in FileUtils.SUPPORTED_FORMATS:
+                            return ext
+            
+            return None
+        except Exception:
+            return None
 
     @staticmethod
     def is_image_url(url: str) -> bool:

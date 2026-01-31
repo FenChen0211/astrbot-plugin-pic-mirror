@@ -50,9 +50,15 @@ class PicMirrorPlugin(Star):
         }
 
         actual_command = message_str
-        if " @" in message_str or message_str.startswith("@"):
+        if " @" in message_str:
+            # 格式: "指令 @用户"
             parts = message_str.split("@", 1)
             actual_command = parts[0].strip()
+        elif message_str.startswith("@"):
+            # 格式: "@用户 指令" (指令在@之后)
+            parts = message_str.split(None, 2)  # 分割成: ["@用户", "指令"]
+            if len(parts) >= 2:
+                actual_command = parts[1].strip()
 
         if actual_command in plain_commands:
             mode = plain_commands[actual_command]

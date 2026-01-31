@@ -2,6 +2,7 @@
 
 import asyncio
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set
@@ -21,7 +22,7 @@ class CleanupManager:
         self._pending_tasks: Set[asyncio.Task] = set()  # 跟踪所有挂起任务
         self._cleanup_task: Optional[asyncio.Task] = None  # 不立即创建
         self._stop_event = asyncio.Event()
-        self._queue_lock = asyncio.Lock()  # ✅ 添加锁
+        self._queue_lock = threading.Lock()  # 使用线程锁而非异步锁（操作轻量）
 
     def _track_task(self, task: asyncio.Task):
         """跟踪异步任务，确保cleanup_all时能正确取消"""
@@ -64,7 +65,7 @@ class CleanupManager:
         """处理清理队列 - 线程安全版本"""
         current_time = time.time()
 
-        async with self._queue_lock:  # ✅ 加锁
+        with self._queue_lock:  # 使用线程锁
             items_to_remove = []
 
             for item in self.cleanup_queue:
@@ -125,19 +126,15 @@ class CleanupManager:
             self._track_task(task)
         else:
             expiry_time = time.time() + (keep_hours * 3600)
-
-            async def _schedule():
-                async with self._queue_lock:  # ✅ 加锁
-                    self.cleanup_queue.append(
-                        {
-                            "path": file_path,
-                            "expiry_time": expiry_time,
-                            "scheduled_time": time.time(),
-                        }
-                    )
-
-            task = asyncio.create_task(_schedule())
-            self._track_task(task)
+            # 直接执行（操作轻量，使用线程锁）
+            with self._queue_lock:
+                self.cleanup_queue.append(
+                    {
+                        "path": file_path,
+                        "expiry_time": expiry_time,
+                        "scheduled_time": time.time(),
+                    }
+                )
             logger.info(f"已安排清理 {file_path.name}, {keep_hours}小时后删除")
 
     async def _cleanup_immediately(self, file_path: Path):
