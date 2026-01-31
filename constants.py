@@ -15,12 +15,12 @@ def _load_version() -> str:
             with open(metadata_path, "r", encoding="utf-8") as f:
                 metadata = yaml.safe_load(f)
                 version = metadata.get("version", "v1.2.0")
-                # 去除可能的前缀 "v"，只保留版本号部分
                 if version.startswith("v"):
                     version = version[1:]
                 return version
-    except Exception:
-        pass
+    except Exception as e:
+        from astrbot.api import logger
+        logger.debug(f"加载版本信息失败，使用默认版本: {e}")
     return "1.2.0"
 
 PLUGIN_VERSION = _load_version()

@@ -6,7 +6,7 @@ from typing import Dict, Any
 from astrbot.api import logger
 
 try:
-    from ..constants import PLUGIN_NAME, PLUGIN_VERSION
+    from ..constants import PLUGIN_NAME
 except ImportError:
     from ..constants import PLUGIN_NAME
 
@@ -30,15 +30,13 @@ class ConfigService:
     def _load_config(self) -> PluginConfig:
         """简化版本 - 只用标准方式"""
         try:
-            # 直接使用context.config
             if hasattr(self.plugin, "context") and hasattr(
                 self.plugin.context, "config"
             ):
                 config_dict = self.plugin.context.config
                 return PluginConfig.load_from_dict(config_dict)
-            # 否则返回默认
             return PluginConfig()
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError) as e:
             logger.error(f"配置加载失败，使用默认配置: {e}", exc_info=True)
             return PluginConfig()
 

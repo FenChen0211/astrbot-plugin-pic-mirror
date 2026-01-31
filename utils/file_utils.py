@@ -13,7 +13,7 @@ from typing import Optional, Tuple, List, TYPE_CHECKING
 from astrbot.api import logger
 
 if TYPE_CHECKING:
-    from config import PluginConfig
+    from ..config import PluginConfig
 
 from astrbot.api.star import StarTools
 
@@ -196,17 +196,15 @@ class FileUtils:
         try:
             for file_path in data_dir.glob(pattern):
                 if file_path.is_file():
-                    try:
-                        if any(
-                            keyword in file_path.name
-                            for keyword in ["tmp", "avatar", "downloaded"]
-                        ):
+                    if any(
+                        keyword in file_path.name
+                        for keyword in ["tmp", "avatar", "downloaded"]
+                    ):
+                        try:
                             file_path.unlink()
-                    except (OSError, PermissionError) as e:
-                        # 文件可能正在使用，忽略
-                        logger.debug(f"无法删除临时文件 {file_path.name}: {e}")
-        except Exception as e:
-            # 清理临时文件时出错，忽略但记录
+                        except (OSError, PermissionError) as e:
+                            logger.debug(f"无法删除临时文件 {file_path.name}: {e}")
+        except (OSError, PermissionError) as e:
             logger.debug(f"清理临时文件时出错: {e}")
 
     @staticmethod

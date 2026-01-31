@@ -226,20 +226,16 @@ class MirrorProcessor:
             压缩后的图像
         """
         try:
-            # 如果是PNG，尝试转换为更小的颜色模式
             if image.mode == "RGBA":
-                # 检查是否真的需要透明度
                 try:
                     alpha = image.getchannel("A")
-                    if alpha.getextrema() == (255, 255):  # 完全不透明
+                    if alpha.getextrema() == (255, 255):
                         image = image.convert("RGB")
-                except Exception as e:
-                    # 图像可能没有alpha通道，忽略
+                except (ValueError, KeyError) as e:
                     logger.debug(f"无法获取alpha通道或检查透明度: {e}")
 
-            # 如果是大图像，可以适当缩小尺寸
             width, height = image.size
-            max_dimension = 2048  # 最大尺寸限制
+            max_dimension = 2048
 
             if width > max_dimension or height > max_dimension:
                 ratio = min(max_dimension / width, max_dimension / height)
@@ -248,8 +244,7 @@ class MirrorProcessor:
                 image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
             return image
-        except Exception as e:
-            # 压缩失败时返回原图
+        except (ValueError, OSError, MemoryError) as e:
             logger.debug(f"图像压缩失败，返回原图: {e}")
             return image
 
@@ -283,11 +278,10 @@ class MirrorProcessor:
                     for frame in ImageSequence.Iterator(img):
                         frame_count += 1
                         
-                        # === 帧数安全检查 ===
                         if frame_count > MAX_FRAMES:
                             logger.error(f"GIF帧数过多，可能存在解压炸弹风险: {frame_count}帧")
                             return None, f"GIF帧数过多（{frame_count} > {MAX_FRAMES}），可能存在安全风险"
-
+                        
                         # 记录每帧持续时间
                         durations.append(frame.info.get("duration", 100))
 

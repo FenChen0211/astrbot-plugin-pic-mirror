@@ -7,7 +7,6 @@ import base64
 import hashlib
 import tempfile
 import time
-import random
 from pathlib import Path
 from typing import List, Optional, Tuple
 from astrbot.api import logger
@@ -30,6 +29,14 @@ from ..image_processor import MirrorProcessor
 
 class ImageHandler:
     """图像处理器"""
+
+    TEMP_FILE_PREFIXES = [
+        "mirror_tmp_",
+        "mirror_temp_",
+        "mirror_avatar_",
+        "mirror_downloaded_",
+        "mirror_base64_",
+    ]
 
     def __init__(self, config_service, plugin_name: str = None):
         self.config_service = config_service
@@ -96,8 +103,7 @@ class ImageHandler:
             recent_requests.append(current_time)
             self._user_request_times[user_id] = recent_requests
 
-            if random.random() < 0.01:
-                self._cleanup_old_rate_limit_records()
+            self._cleanup_old_rate_limit_records()
 
             return True, None
 
@@ -360,23 +366,14 @@ class ImageHandler:
             return None
 
     def _cleanup_input_file(self, file_path: Path):
-        """清理输入文件 - 使用独特前缀确保安全"""
+        """清理输入文件 - 使用类常量前缀确保安全"""
         if not file_path or not file_path.exists():
             return
 
         try:
             if file_path.parent == self.data_dir:
                 filename = file_path.name.lower()
-                # 使用独特前缀，避免与用户文件名冲突
-                temp_prefixes = [
-                    "mirror_tmp_",
-                    "mirror_temp_",
-                    "mirror_avatar_",
-                    "mirror_downloaded_",
-                    "mirror_base64_",
-                ]
-
-                if any(filename.startswith(prefix) for prefix in temp_prefixes):
+                if any(filename.startswith(prefix) for prefix in self.TEMP_FILE_PREFIXES):
                     file_path.unlink()
                     logger.info(f"清理临时输入文件: {file_path.name}")
         except Exception as e:

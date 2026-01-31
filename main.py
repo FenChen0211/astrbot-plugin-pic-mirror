@@ -3,7 +3,7 @@
 """
 
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.event_message_type import EventMessageType
 from astrbot.api import logger
 import asyncio
@@ -14,13 +14,6 @@ from .services.config_service import ConfigService
 from .core.image_handler import ImageHandler
 
 
-@register(
-    PLUGIN_NAME,
-    PLUGIN_AUTHOR,
-    PLUGIN_DESCRIPTION,
-    PLUGIN_VERSION,
-    repo="https://github.com/FenChen0211/astrbot-plugin-pic-mirror",
-)
 class PicMirrorPlugin(Star):
     """图像对称处理插件"""
 
@@ -33,7 +26,7 @@ class PicMirrorPlugin(Star):
         logger.info("图像对称插件已加载")
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
 
-        asyncio.create_task(self.initialize())
+        self._init_task = asyncio.create_task(self.initialize())
 
     @filter.event_message_type(EventMessageType.ALL)
     async def handle_all_mirror_commands(self, event: AstrMessageEvent):
@@ -143,15 +136,18 @@ class PicMirrorPlugin(Star):
     async def terminate(self):
         """插件卸载时调用"""
         try:
+            if hasattr(self, "_init_task") and self._init_task and not self._init_task.done():
+                self._init_task.cancel()
+                try:
+                    await self._init_task
+                except asyncio.CancelledError:
+                    pass
+
             if hasattr(self, "image_handler") and self.image_handler is not None:
                 await self.image_handler.cleanup()
             else:
                 logger.warning("image_handler 未初始化，跳过清理操作")
         except (AttributeError, RuntimeError, asyncio.CancelledError) as e:
             logger.error(f"插件卸载时发生异常: {e}", exc_info=True)
-        except Exception as e:
-            # 其他未知异常也记录，但更详细
-            logger.critical(f"插件卸载时发生未知异常: {e}", exc_info=True)
-            raise  # 重新抛出让框架处理
         finally:
             logger.info("图像对称插件正在卸载...")

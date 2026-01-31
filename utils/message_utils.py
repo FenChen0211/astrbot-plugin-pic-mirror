@@ -43,34 +43,31 @@ class MessageUtils:
         image_sources = []
 
         try:
-            # 使用框架API获取消息链
             messages = event.get_messages()
 
             if not messages:
                 logger.debug("event.get_messages() 返回空")
                 return image_sources
 
-            logger.info(f"从get_messages()获取到消息链，长度: {len(messages)}")
+            logger.debug(f"从get_messages()获取到消息链，长度: {len(messages)}")
 
-            # 处理方法保持不变
             for component in messages:
                 if isinstance(component, Comp.Image):
                     url = MessageUtils._extract_from_image_component(component)
                     if url:
                         image_sources.append(url)
-                        logger.info(f"提取到图片: {url[:50]}...")
+                        logger.debug(f"提取到图片: {url[:50]}...")
 
                 elif isinstance(component, Comp.Reply):
-                    # 使用工作插件的模式：检查 chain 属性
                     if hasattr(component, 'chain') and component.chain:
                         for reply_component in component.chain:
                             if isinstance(reply_component, Comp.Image):
                                 url = MessageUtils._extract_from_image_component(reply_component)
                                 if url:
                                     image_sources.append(url)
-                                    logger.info(f"从回复消息提取到图片")
+                                    logger.debug(f"从回复消息提取到图片")
 
-            logger.info(f"总共找到 {len(image_sources)} 个图像源")
+            logger.debug(f"总共找到 {len(image_sources)} 个图像源")
             return image_sources
 
         except Exception as e:
@@ -98,52 +95,6 @@ class MessageUtils:
                 if hasattr(component, 'chain') and component.chain:
                     reply_messages = component.chain
                     logger.debug(f"Reply 组件有 chain 属性，长度: {len(reply_messages)}")
-
-                elif hasattr(component, 'message') and component.message:
-                    reply_messages = component.message
-                    logger.debug(f"Reply 组件有 message 属性")
-
-                elif hasattr(component, 'content'):
-                    content = component.content
-                    if isinstance(content, list):
-                        reply_messages = content
-                        logger.debug(f"Reply 组件 content 是消息链")
-                    elif isinstance(content, str) and content.startswith('[图片]'):
-                        logger.debug(f"Reply 组件 content 包含图片文本表示: {content}")
-
-                if reply_messages:
-                    image_sources.extend(MessageUtils._extract_from_messages(reply_messages))
-
-        return image_sources
-
-    @staticmethod
-    def _extract_from_raw_message(raw) -> List[str]:
-        """从原始消息中提取图像源"""
-        image_sources = []
-
-        try:
-            raw_str = str(raw)
-            if '[图片]' in raw_str or 'image' in raw_str.lower():
-                logger.debug(f"原始消息中包含图片指示: {raw_str[:100]}...")
-
-            if isinstance(raw, dict):
-                for key, value in raw.items():
-                    if 'image' in key.lower() or 'file' in key.lower():
-                        if isinstance(value, str) and value:
-                            image_sources.append(value)
-                            logger.debug(f"从 raw_message 字典中找到图片字段 {key}: {value[:50]}...")
-                    elif isinstance(value, (dict, list)):
-                        if isinstance(value, dict):
-                            image_sources.extend(MessageUtils._extract_from_raw_message(value))
-                        elif isinstance(value, list):
-                            for item in value:
-                                if isinstance(item, dict):
-                                    image_sources.extend(MessageUtils._extract_from_raw_message(item))
-
-        except Exception as e:
-            logger.debug(f"解析 raw_message 时出错: {e}")
-
-        return image_sources
 
     @staticmethod
     def _extract_from_image_component(component: Comp.Image) -> Optional[str]:

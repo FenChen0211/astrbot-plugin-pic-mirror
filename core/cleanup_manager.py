@@ -85,21 +85,17 @@ class CleanupManager:
 
     def schedule_cleanup(self, file_path: Path, keep_hours: int):
         """安排文件清理 - 安全版本"""
-        # 验证路径是否在插件数据目录内
         if self.plugin_name:
             try:
                 plugin_data_dir = StarTools.get_data_dir(self.plugin_name)
-                # 使用 is_relative_to 进行严格的路径层级检查（Python 3.9+）
-                # 防止路径遍历攻击，如 /data/plugin_backup/../plugin/evil.py
                 if file_path.resolve().absolute().is_relative_to(plugin_data_dir.resolve().absolute()):
-                    pass  # 路径安全，允许清理
+                    pass
                 else:
                     logger.error(f"[清理管理器] 拒绝清理外部路径（路径遍历攻击尝试）: {file_path}")
                     return
             except Exception as e:
-                # 任何异常都视为安全隐患，拒绝执行清理
-                logger.error(f"[清理管理器] 路径校验异常，拒绝执行清理: {e}", exc_info=True)
-                return  # 有疑问时默认拒绝
+                logger.error(f"[清理管理器] 路径校验失败（原因: {type(e).__name__}: {e}），拒绝执行清理以确保安全", exc_info=True)
+                return
 
         if keep_hours <= 0:
             task = asyncio.create_task(self._cleanup_immediately(file_path))
@@ -135,13 +131,12 @@ class CleanupManager:
         """清理所有资源"""
         logger.info("开始清理清理管理器资源...")
 
-        # 停止主清理任务
         if self._cleanup_task and not self._cleanup_task.done():
             self._stop_event.set()
             try:
                 await asyncio.wait_for(self._cleanup_task, timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("清理任务停止超时，强制取消")
+                logger.warning("清理任务在5秒内未响应（可能正在处理文件或卡住），强制取消")
                 self._cleanup_task.cancel()
                 try:
                     await self._cleanup_task
