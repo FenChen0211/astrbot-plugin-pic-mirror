@@ -8,10 +8,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.core.star.filter.event_message_type import EventMessageType
 from astrbot.api.star import Context, Star
 
-try:
-    from .constants import PLUGIN_NAME
-except ImportError:
-    from constants import PLUGIN_NAME
+from .constants import PLUGIN_NAME
 
 from astrbot.api import logger
 from .services.config_service import ConfigService
