@@ -83,28 +83,22 @@ class PicMirrorPlugin(Star):
         async for result in self.image_handler.process_mirror(event, mode):
             yield result
 
-    @filter.command("左对称", alias={"mirror left", "left", "左右对称"})
-    async def mirror_left(self, event: AstrMessageEvent):
-        """左半边图像对称到右边"""
-        async for result in self.handle_mirror_with_mode(event, "left_to_right"):
-            yield result
+    async def handle_mirror_with_mode(self, event: AstrMessageEvent, mode: str):
+        """处理镜像请求的统一入口"""
+        # 审核说明: 根据审核要求等待初始化完成，避免竞态条件
+        if (
+            hasattr(self, "_init_task")
+            and self._init_task
+            and not self._init_task.done()
+        ):
+            await self._init_task
 
-    @filter.command("右对称", alias={"mirror right", "right", "右左对称"})
-    async def mirror_right(self, event: AstrMessageEvent):
-        """右半边图像对称到左边"""
-        async for result in self.handle_mirror_with_mode(event, "right_to_left"):
-            yield result
+        if self.image_handler is None:
+            logger.error("image_handler 未初始化")
+            yield event.plain_result("❌ 插件尚未初始化完成，请稍后再试")
+            return
 
-    @filter.command("上对称", alias={"mirror top", "top", "上下对称"})
-    async def mirror_top(self, event: AstrMessageEvent):
-        """上半边图像对称到下面"""
-        async for result in self.handle_mirror_with_mode(event, "top_to_bottom"):
-            yield result
-
-    @filter.command("下对称", alias={"mirror bottom", "bottom", "下上对称"})
-    async def mirror_bottom(self, event: AstrMessageEvent):
-        """下半边图像对称到上面"""
-        async for result in self.handle_mirror_with_mode(event, "bottom_to_top"):
+        async for result in self.image_handler.process_mirror(event, mode):
             yield result
 
     @filter.command(
