@@ -57,13 +57,11 @@ class ImageHandler:
 
         # 频率限制相关初始化
         self._user_request_times = {}  # 格式: {user_id: [timestamp1, timestamp2...]}
-        self._rate_limit_lock = None  # 延迟初始化
+        self._rate_limit_lock = asyncio.Lock()
 
     @property
     def rate_limit_lock(self):
-        """延迟初始化锁对象"""
-        if self._rate_limit_lock is None:
-            self._rate_limit_lock = asyncio.Lock()
+        """获取频率限制锁"""
         return self._rate_limit_lock
 
     async def initialize(self):

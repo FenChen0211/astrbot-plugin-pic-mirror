@@ -260,9 +260,11 @@ class NetworkUtils:
             return None
 
     async def get_session(self):
-        """获取或创建HTTP会话"""
+        """获取或创建HTTP会话（线程安全）"""
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            async with self._session_lock:
+                if self.session is None or self.session.closed:
+                    self.session = aiohttp.ClientSession()
         return self.session
 
     async def _is_safe_url(self, url: str) -> bool:

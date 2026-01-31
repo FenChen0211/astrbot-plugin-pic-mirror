@@ -21,14 +21,24 @@ from astrbot.api.star import StarTools
 class FileUtils:
     """文件处理工具类"""
 
-    # 支持的图像格式
     SUPPORTED_STATIC_FORMATS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
     SUPPORTED_GIF_FORMAT = {".gif"}
     SUPPORTED_FORMATS = SUPPORTED_STATIC_FORMATS | SUPPORTED_GIF_FORMAT
 
-    # 默认文件大小限制（会被配置覆盖）
     DEFAULT_IMAGE_SIZE_LIMIT = 10 * 1024 * 1024  # 10MB
     DEFAULT_GIF_SIZE_LIMIT = 15 * 1024 * 1024  # 15MB
+
+    MAGIC_BYTES = {
+        "gif": ([b"GIF87a", b"GIF89a"], 6),
+        "png": (b"\x89PNG\r\n\x1a\n", 8),
+        "jpeg": (b"\xff\xd8\xff", 3),
+        "jpeg2000": (b"\x00\x00\x00\x0c\x6a\x50\x20\x20\x0d\x0a\x87\x0a", 12),
+        "webp": (b"RIFF", 4, b"WEBP", 8),
+        "bmp": (b"BM", 2),
+        "avif": (b"ftyp", 4, [b"avif", b"avis"], 8),
+        "ico": ([b"\x00\x00\x01\x00", b"\x00\x00\x02\x00"], 4),
+        "tiff": ([b"II\x00\x2a", b"MM\x00\x2a"], 4),
+    }
 
     @staticmethod
     def ensure_data_dir(plugin_name: str) -> Path:
@@ -221,47 +231,37 @@ class FileUtils:
         if len(data) < 12:
             return None
 
-        # GIF: GIF87a or GIF89a（增强版：检测动画GIF）
-        if data[:6] in [b"GIF87a", b"GIF89a"]:
-            # 检查是否是动画GIF
+        magic = FileUtils.MAGIC_BYTES
+
+        if data[:6] in magic["gif"][0]:
             if len(data) > 13:
-                # 检查是否有多个图像块（0x2C表示图像描述符）
-                # 动态GIF通常包含多个图像帧
                 image_descriptor_count = data.count(b'\x2C')
                 if image_descriptor_count > 1:
                     logger.debug(f"检测到动态GIF，包含 {image_descriptor_count} 帧")
             return ".gif"
 
-        # PNG: \x89PNG\r\n\x1a\n
-        if data[:8] == b"\x89PNG\r\n\x1a\n":
+        if data[:8] == magic["png"][0]:
             return ".png"
 
-        # JPEG: \xff\xd8\xff
-        if data[:3] == b"\xff\xd8\xff":
+        if data[:3] == magic["jpeg"][0]:
             return ".jpg"
 
-        # JPEG 2000
-        if data[:12] == b"\x00\x00\x00\x0c\x6a\x50\x20\x20\x0d\x0a\x87\x0a":
+        if data[:12] == magic["jpeg2000"][0]:
             return ".jp2"
 
-        # WebP: RIFF....WEBP
-        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        if data[:4] == magic["webp"][0] and data[8:12] == magic["webp"][2]:
             return ".webp"
 
-        # BMP: BM
-        if data[:2] == b"BM":
+        if data[:2] == magic["bmp"][0]:
             return ".bmp"
 
-        # AVIF: ftypavif 或 ftypavis（AV1 Image File Format）
-        if len(data) > 12 and data[4:8] == b"ftyp" and data[8:12] in [b"avif", b"avis"]:
+        if len(data) > 12 and data[4:8] == magic["avif"][0] and data[8:12] in magic["avif"][2]:
             return ".avif"
 
-        # ICO: 00000100（16x16）或 00000102（256x256，PNG格式）
-        if data[:4] in [b"\x00\x00\x01\x00", b"\x00\x00\x02\x00"]:
+        if data[:4] in magic["ico"][0]:
             return ".ico"
 
-        # TIFF: II（Intel）或 MM（Motorola）
-        if data[:4] in [b"II\x00\x2a", b"MM\x00\x2a"]:
+        if data[:4] in magic["tiff"][0]:
             return ".tiff"
 
         return None
