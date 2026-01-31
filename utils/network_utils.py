@@ -102,13 +102,28 @@ class NetworkUtils:
         self.timeout = timeout
         self.config = config  # 保存配置引用
         self._session_lock = asyncio.Lock()  # Session创建锁
-        self._domain_sessions: Dict[str, aiohttp.ClientSession] = {}  # 按域名的Session缓存
+        self._base_session: Optional[aiohttp.ClientSession] = None  # 基础Session（无固定Resolver）
 
         # 从配置获取大小限制，或使用默认值
         if config and hasattr(config, "max_image_size_bytes"):
             self.max_download_size = config.max_image_size_bytes
         else:
             self.max_download_size = 10 * 1024 * 1024  # 10MB默认
+
+    async def _get_base_session(self) -> aiohttp.ClientSession:
+        """获取基础Session（用于不需要固定Resolver的请求）"""
+        if self._base_session is None or self._base_session.closed:
+            async with self._session_lock:
+                if self._base_session is None or self._base_session.closed:
+                    timeout = aiohttp.ClientTimeout(total=self.timeout)
+                    self._base_session = aiohttp.ClientSession(timeout=timeout)
+        return self._base_session
+
+    async def cleanup(self):
+        """清理资源"""
+        if self._base_session and not self._base_session.closed:
+            await self._base_session.close()
+        self._base_session = None
 
     async def _resolve_hostname(self, hostname: str) -> str:
         """异步解析域名获取IP地址（优先IPv4）"""
@@ -275,12 +290,8 @@ class NetworkUtils:
             return None
 
     async def get_session(self):
-        """获取或创建HTTP会话（线程安全）"""
-        if self.session is None or self.session.closed:
-            async with self._session_lock:
-                if self.session is None or self.session.closed:
-                    self.session = aiohttp.ClientSession()
-        return self.session
+        """获取或创建HTTP会话（用于不需要固定Resolver的请求）"""
+        return await self._get_base_session()
 
     async def _is_safe_url(self, url: str) -> bool:
         """真正的SSRF防护 - 包含DNS解析检查"""
@@ -343,6 +354,7 @@ class NetworkUtils:
         safe_ip, hostname = safe_info
 
         # 2. 使用自定义DNS解析器（保持原始URL，避免SSL证书问题）
+        # 注意：每次请求创建新的 Session 和 Connector，避免内存泄漏和 DNS Pinning 问题
         try:
             parsed = urlparse(url)
 
@@ -358,32 +370,23 @@ class NetworkUtils:
 
             timeout = aiohttp.ClientTimeout(total=self.timeout)
 
-            # 获取或创建该域名的Session（带自定义connector）
-            if hostname not in self._domain_sessions or self._domain_sessions[hostname].closed:
-                async with self._session_lock:
-                    if hostname not in self._domain_sessions or self._domain_sessions[hostname].closed:
-                        self._domain_sessions[hostname] = aiohttp.ClientSession(
-                            connector=connector, timeout=timeout
-                        )
-
-            session = self._domain_sessions[hostname]
-
-            # 使用带自定义DNS解析的Session
-            async with session.get(url) as response:
-                if response.status != 200:
-                    logger.error(f"下载失败，状态码: {response.status}")
-                    return None
-
-                # 流式读取+大小限制
-                buffer = bytearray()
-                async for chunk in response.content.iter_chunked(8192):
-                    buffer.extend(chunk)
-                    if len(buffer) > self.max_download_size:
-                        logger.error(f"图片超过大小限制: {len(buffer)} bytes")
+            # 每次请求创建新的 Session（避免缓存导致的内存泄漏和DNS Pinning问题）
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        logger.error(f"下载失败，状态码: {response.status}")
                         return None
 
-                logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
-                return bytes(buffer)
+                    # 流式读取+大小限制
+                    buffer = bytearray()
+                    async for chunk in response.content.iter_chunked(8192):
+                        buffer.extend(chunk)
+                        if len(buffer) > self.max_download_size:
+                            logger.error(f"图片超过大小限制: {len(buffer)} bytes")
+                            return None
+
+                    logger.info(f"成功下载图片，大小: {len(buffer)} bytes")
+                    return bytes(buffer)
 
         except asyncio.TimeoutError:
             logger.error(f"下载超时: {url}")
@@ -417,8 +420,10 @@ class NetworkUtils:
                 if avatar_data:
                     logger.info(f"成功获取QQ头像: {qq_number}")
                     return avatar_data
+                else:
+                    logger.warning(f"头像API返回空: {url}")
             except Exception as e:
-                logger.debug(f"头像API失败 {url}: {e}")
+                logger.warning(f"头像API异常 {url}: {e}")
                 continue
 
         logger.error(f"所有头像API都失败: {qq_number}")
@@ -454,7 +459,7 @@ class NetworkUtils:
                         return None
             except Exception as e:
                 if attempt == retries:
-                    logger.debug(f"下载失败 {url} (尝试{attempt + 1}次): {e}")
+                    logger.warning(f"下载失败 {url} (尝试{attempt + 1}次): {e}")
                 await asyncio.sleep(0.5 * (2**attempt))  # 指数退避: 0.5s, 1s, 2s
 
         return None
