@@ -96,8 +96,6 @@ class NetworkUtils:
         ".localdomain",
     ]
 
-    PRIVATE_IP_PREFIXES = ["192.168.", "10.", "172.16."]
-
     def __init__(self, timeout: int = 30, config=None):
         self.timeout = timeout
         self.config = config  # 保存配置引用

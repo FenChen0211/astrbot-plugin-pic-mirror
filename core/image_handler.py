@@ -37,8 +37,6 @@ class ImageHandler:
         "mirror_base64_",
     ]
 
-    TEMP_FILE_PATTERN = re.compile(r"^mirror_(tmp|temp|avatar|downloaded|base64)_.*")
-
     def __init__(self, config_service, plugin_name: str = None):
         self.config_service = config_service
         self.config = config_service.config  # ✅ 直接使用
