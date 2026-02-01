@@ -75,7 +75,7 @@ class CleanupManager:
         """处理清理队列 - 线程安全版本"""
         current_time = time.time()
 
-        with self._queue_lock:  # 使用线程锁
+        async with self._queue_lock:  # 使用异步锁
             items_to_remove = []
 
             for item in self.cleanup_queue:
@@ -94,7 +94,6 @@ class CleanupManager:
                     except Exception as e:
                         logger.warning(f"清理文件失败 {file_path}: {e}")
 
-            # 使用列表推导式重构，更高效（O(N) vs 原 O(N*M)）
             self.cleanup_queue = [item for item in self.cleanup_queue if item not in items_to_remove]
 
     def _validate_cleanup_path(self, file_path: Path) -> bool:
