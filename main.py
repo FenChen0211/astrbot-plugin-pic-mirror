@@ -27,24 +27,25 @@ class PicMirrorPlugin(Star):
         self.config_service = ConfigService(self)
         self.image_handler = ImageHandler(self.config_service)
         self._initialized = False
-        self._init_task = None  # 显式初始化，避免 hasattr 隐式依赖
+        self._init_task = None
+        self._init_lock = asyncio.Lock()  # 防止初始化竞态条件
 
         logger.info("图像对称插件已加载")
         logger.info(f"当前配置: {self.config_service.get_config_summary()}")
 
     async def _ensure_initialized(self):
-        """确保插件已初始化（延迟初始化，防竞态条件）"""
-        if self._initialized:
-            return
-        
-        init_task = self._init_task
-        if init_task is not None and not init_task.done():
-            await init_task
-        elif init_task is None or init_task.done():
-            self._init_task = asyncio.create_task(self._do_initialize())
-            await self._init_task
-        
-        self._initialized = True
+        """确保插件已初始化（使用Lock防止竞态条件）"""
+        async with self._init_lock:
+            if self._initialized:
+                return
+            
+            if self._init_task is not None and not self._init_task.done():
+                await self._init_task
+            elif self._init_task is None or self._init_task.done():
+                self._init_task = asyncio.create_task(self._do_initialize())
+                await self._init_task
+            
+            self._initialized = True
 
     async def _do_initialize(self):
         """实际执行初始化"""

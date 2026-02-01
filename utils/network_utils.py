@@ -364,6 +364,12 @@ class NetworkUtils:
         通过自定义DNS解析器将域名固定解析到预先验证的安全IP，
         保持原始URL进行连接，避免HTTPS证书验证失败。
 
+        设计权衡：
+        为防范DNS Rebinding攻击，每个请求创建独立的ClientSession和FixedDNSResolver。
+        这在安全性上非常出色，但ClientSession创建销毁有开销。
+        高并发场景可考虑：1)维护一个带固定Resolver的连接池；2)或对可信域名跳过此检查。
+        当前实现优先保证安全性。
+
         Args:
             url: 图片URL
 

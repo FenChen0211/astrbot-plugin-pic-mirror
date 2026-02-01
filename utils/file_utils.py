@@ -10,6 +10,8 @@ import secrets
 import time as time_module
 from pathlib import Path
 from typing import Optional, Tuple, List, TYPE_CHECKING
+from urllib.parse import urlparse, parse_qs
+
 from astrbot.api import logger
 
 if TYPE_CHECKING:
@@ -75,8 +77,6 @@ class FileUtils:
             小写的文件扩展名，如'.jpg'、'.gif'，未找到返回None
         """
         try:
-            from urllib.parse import urlparse, parse_qs
-            
             parsed = urlparse(url_or_path)
             
             # 1. 优先从路径中提取扩展名

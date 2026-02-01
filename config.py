@@ -199,5 +199,3 @@ class PluginConfig:
             raise ValueError(f"rate_limit_per_minute must be between {self.MIN_RATE_LIMIT}-{self.MAX_RATE_LIMIT}")
         if not (self.MIN_GIF_FRAMES <= self.max_gif_frames <= self.MAX_GIF_FRAMES):
             raise ValueError(f"max_gif_frames must be between {self.MIN_GIF_FRAMES}-{self.MAX_GIF_FRAMES}")
-        if not (self.MIN_CLEANUP_TIMEOUT <= self.cleanup_timeout <= self.MAX_CLEANUP_TIMEOUT):
-            raise ValueError(f"cleanup_timeout must be between {self.MIN_CLEANUP_TIMEOUT}-{self.MAX_CLEANUP_TIMEOUT} seconds")
