@@ -143,24 +143,25 @@ class PluginConfig:
                     )
                     return default
 
+            config = cls()
             config = cls(
-                image_size_limit_mb=safe_get("image_size_limit_mb", 10, int),
-                gif_size_limit_mb=safe_get("gif_size_limit_mb", 15, int),
-                precheck_file_size_mb=safe_get("precheck_file_size_mb", 100, int),
-                max_compression_dimension=safe_get("max_compression_dimension", 2048, int),
-                max_total_pixels=safe_get("max_total_pixels", 4000 * 4000, int),
-                cleanup_loop_interval=safe_get("cleanup_loop_interval", 300, int),
-                processing_timeout=safe_get("processing_timeout", 30, int),
-                output_quality=safe_get("output_quality", 85, int),
-                enable_gif=safe_get("enable_gif", True, bool),
-                enable_compression=safe_get("enable_compression", True, bool),
-                silent_mode=safe_get("silent_mode", True, bool),
-                enable_auto_cleanup=safe_get("enable_auto_cleanup", True, bool),
-                keep_files_hours=safe_get("keep_files_hours", 1, int),
-                enable_at_avatar=safe_get("enable_at_avatar", True, bool),
-                rate_limit_per_minute=safe_get("rate_limit_per_minute", 10, int),
-                max_gif_frames=safe_get("max_gif_frames", 200, int),
-                cleanup_timeout=safe_get("cleanup_timeout", 5.0, float),
+                image_size_limit_mb=safe_get("image_size_limit_mb", config.image_size_limit_mb, int),
+                gif_size_limit_mb=safe_get("gif_size_limit_mb", config.gif_size_limit_mb, int),
+                precheck_file_size_mb=safe_get("precheck_file_size_mb", config.precheck_file_size_mb, int),
+                max_compression_dimension=safe_get("max_compression_dimension", config.max_compression_dimension, int),
+                max_total_pixels=safe_get("max_total_pixels", config.max_total_pixels, int),
+                cleanup_loop_interval=safe_get("cleanup_loop_interval", config.cleanup_loop_interval, int),
+                processing_timeout=safe_get("processing_timeout", config.processing_timeout, int),
+                output_quality=safe_get("output_quality", config.output_quality, int),
+                enable_gif=safe_get("enable_gif", config.enable_gif, bool),
+                enable_compression=safe_get("enable_compression", config.enable_compression, bool),
+                silent_mode=safe_get("silent_mode", config.silent_mode, bool),
+                enable_auto_cleanup=safe_get("enable_auto_cleanup", config.enable_auto_cleanup, bool),
+                keep_files_hours=safe_get("keep_files_hours", config.keep_files_hours, int),
+                enable_at_avatar=safe_get("enable_at_avatar", config.enable_at_avatar, bool),
+                rate_limit_per_minute=safe_get("rate_limit_per_minute", config.rate_limit_per_minute, int),
+                max_gif_frames=safe_get("max_gif_frames", config.max_gif_frames, int),
+                cleanup_timeout=safe_get("cleanup_timeout", config.cleanup_timeout, float),
             )
             config.validate()
             return config
