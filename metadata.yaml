@@ -1,6 +1,6 @@
 name: astrbot_plugin_pic_mirror # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: 更多的图像对称 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
 desc: 一个图像对称处理插件，用于生成诡异弔图，可以为图片添加多种镜像效果 # 插件简短描述
-version: v1.2.2 # 插件版本号。格式：v1.2.0 或者 v1.1
+version: v1.2.3 # 插件版本号。格式：v1.2.0 或者 v1.1
 author: FenChen0211 # 作者
 repo: https://github.com/FenChen0211/astrbot-plugin-pic-mirror # 插件的仓库地址
