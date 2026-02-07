@@ -7,7 +7,7 @@ import io
 import os
 from pathlib import Path
 from typing import Tuple, Optional
-from PIL import Image, ImageSequence
+from PIL import Image, ImageSequence, ImageFile
 
 # 注意：PIL全局设置已移除，避免影响其他插件
 
@@ -327,123 +327,173 @@ class MirrorProcessor:
 
             # 将整个GIF处理放入executor执行
             def process_gif_in_thread():
-                frames = []
-                durations = []
+                # 临时启用 LOAD_TRUNCATED_IMAGES 以处理带透明度的 GIF
+                original_load_truncated = ImageFile.LOAD_TRUNCATED_IMAGES
+                ImageFile.LOAD_TRUNCATED_IMAGES = True
+                
+                try:
+                    frames = []
+                    durations = []
+                    has_transparency = False  # 标记是否有透明度
 
-                with Image.open(input_path) as img:
-                    # 检查GIF整体尺寸安全性
-                    if not MirrorProcessor._check_image_size(img):
-                        return (
-                            None,
-                            f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
-                        )
-
-                    MAX_FRAMES = (
-                        config.max_gif_frames if config else 200
-                    )  # GIF最大帧数限制，防止解压炸弹
-                    
-                    MAX_TOTAL_PIXELS = (
-                        config.max_total_pixels if config else 4000 * 4000
-                    )  # 总像素数限制，使用配置值
-
-                    # 一次遍历同时统计和处理帧
-                    frame_count = 0
-                    for frame in ImageSequence.Iterator(img):
-                        frame_count += 1
-
-                        if frame_count > MAX_FRAMES:
-                            logger.error(
-                                f"GIF帧数过多，可能存在解压炸弹风险: {frame_count}帧"
-                            )
+                    with Image.open(input_path) as img:
+                        # 检查GIF整体尺寸安全性
+                        if not MirrorProcessor._check_image_size(img):
                             return (
                                 None,
-                                f"GIF帧数过多（{frame_count} > {MAX_FRAMES}），可能存在安全风险",
+                                f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
                             )
 
-                        # 检查总像素数（帧数 × 单帧像素）
-                        frame_pixels = frame.width * frame.height
-                        total_pixels = frame_count * frame_pixels
-                        if total_pixels > MAX_TOTAL_PIXELS:
-                            logger.error(
-                                f"GIF总像素数过多，可能存在解压炸弹风险: {total_pixels}像素"
-                            )
-                            return (
-                                None,
-                                f"GIF总像素数过多（{total_pixels / 10000 / 10000:.1f}亿像素），可能存在安全风险",
-                            )
+                        # 检测原始GIF是否有透明度
+                        if 'transparency' in img.info:
+                            has_transparency = True
 
-                        # 记录每帧持续时间
-                        durations.append(frame.info.get("duration", 100))
-
-                        # 处理当前帧
-                        if frame.mode == "P":
-                            frame = frame.convert("RGBA")
-                        elif frame.mode == "LA":
-                            frame = frame.convert("RGBA")
-
-                        # 应用对称变换
-                        mirrored_frame = MirrorProcessor._apply_mirror(frame, mode)
-
-                        # 应用压缩（如果启用）
-                        if config and config.enable_compression:
-                            mirrored_frame = MirrorProcessor._compress_image(
-                                mirrored_frame, config
-                            )
-
-                        frames.append(mirrored_frame)
-
-                    # 帧数过多时提示
-                    if frame_count > 100:
-                        logger.warning(
-                            f"处理大型GIF: {frame_count}帧，可能需要较长时间"
+                        MAX_FRAMES = (
+                            config.max_gif_frames if config else 200
+                        )
+                        
+                        MAX_TOTAL_PIXELS = (
+                            config.max_total_pixels if config else 4000 * 4000
                         )
 
-                # 保存GIF
-                if len(frames) > 0:
-                    # 统一所有帧的尺寸和模式（以第一帧为基准）
-                    target_size = frames[0].size
-                    target_mode = "RGBA"
-                    
-                    normalized_frames = []
-                    for f in frames:
-                        # 确保模式一致
-                        if f.mode != target_mode:
-                            f = f.convert(target_mode)
-                        # 确保尺寸一致
-                        if f.size != target_size:
-                            f = f.resize(target_size, Image.Resampling.LANCZOS)
-                        normalized_frames.append(f)
-                    
-                    # 根据配置的质量计算调色板颜色数 (quality 1-100 映射到 64-256 色)
-                    quality = config.output_quality if config else 85
-                    palette_colors = max(64, min(256, int(64 + (256 - 64) * quality / 100)))
-                    
-                    # 使用简化的方法：先转换为带透明度的 P模式
-                    # PIL 的 GIF 保存会自动处理大部分兼容性问题
-                    gif_frames = []
-                    for i, f in enumerate(normalized_frames):
-                        # 使用 RGBA -> quantize 的方式转换
-                        # 这样可以保留透明度信息
-                        p_frame = f.quantize(colors=palette_colors)
-                        gif_frames.append(p_frame)
-                    
-                    # 确保 durations 列表长度与帧数匹配
-                    while len(durations) < len(gif_frames):
-                        durations.append(100)  # 默认100ms
-                    durations = durations[:len(gif_frames)]
-                    
-                    # 保存 GIF
-                    gif_frames[0].save(
-                        output_path,
-                        save_all=True,
-                        append_images=gif_frames[1:] if len(gif_frames) > 1 else [],
-                        duration=durations,
-                        loop=0,
-                        disposal=2,
-                    )
-                    return gif_frames, None
+                        # 一次遍历同时统计和处理帧
+                        frame_count = 0
+                        for frame in ImageSequence.Iterator(img):
+                            frame_count += 1
 
-                return None, "GIF没有帧数据"
+                            if frame_count > MAX_FRAMES:
+                                logger.error(
+                                    f"GIF帧数过多，可能存在解压炸弹风险: {frame_count}帧"
+                                )
+                                return (
+                                    None,
+                                    f"GIF帧数过多（{frame_count} > {MAX_FRAMES}），可能存在安全风险",
+                                )
+
+                            # 检查总像素数（帧数 × 单帧像素）
+                            frame_pixels = frame.width * frame.height
+                            total_pixels = frame_count * frame_pixels
+                            if total_pixels > MAX_TOTAL_PIXELS:
+                                logger.error(
+                                    f"GIF总像素数过多，可能存在解压炸弹风险: {total_pixels}像素"
+                                )
+                                return (
+                                    None,
+                                    f"GIF总像素数过多（{total_pixels / 10000 / 10000:.1f}亿像素），可能存在安全风险",
+                                )
+
+                            # 记录每帧持续时间
+                            durations.append(frame.info.get("duration", 100))
+                            
+                            # 检测帧是否有透明度
+                            if 'transparency' in frame.info:
+                                has_transparency = True
+
+                            # 复制帧并转换为 RGBA（确保帧数据独立，避免迭代器问题）
+                            frame_copy = frame.copy()
+                            if frame_copy.mode == "P":
+                                frame_copy = frame_copy.convert("RGBA")
+                            elif frame_copy.mode == "LA":
+                                frame_copy = frame_copy.convert("RGBA")
+                            elif frame_copy.mode != "RGBA":
+                                frame_copy = frame_copy.convert("RGBA")
+
+                            # 应用对称变换
+                            mirrored_frame = MirrorProcessor._apply_mirror(frame_copy, mode)
+
+                            # 应用压缩（如果启用）
+                            if config and config.enable_compression:
+                                mirrored_frame = MirrorProcessor._compress_image(
+                                    mirrored_frame, config
+                                )
+
+                            frames.append(mirrored_frame)
+
+                        # 帧数过多时提示
+                        if frame_count > 100:
+                            logger.warning(
+                                f"处理大型GIF: {frame_count}帧，可能需要较长时间"
+                            )
+
+                    # 保存GIF
+                    if len(frames) > 0:
+                        # 统一所有帧的尺寸（以第一帧为基准）
+                        target_size = frames[0].size
+                        
+                        normalized_frames = []
+                        for f in frames:
+                            # 确保模式一致 (RGBA)
+                            if f.mode != "RGBA":
+                                f = f.convert("RGBA")
+                            # 确保尺寸一致
+                            if f.size != target_size:
+                                f = f.resize(target_size, Image.Resampling.LANCZOS)
+                            normalized_frames.append(f)
+                        
+                        # 根据配置的质量计算调色板颜色数 (quality 1-100 映射到 64-255 色)
+                        # 保留255色以预留透明色索引
+                        quality = config.output_quality if config else 85
+                        palette_colors = max(64, min(255, int(64 + (255 - 64) * quality / 100)))
+                        
+                        # 转换为 P 模式，保留透明度
+                        gif_frames = []
+                        for f in normalized_frames:
+                            # 检查是否有透明像素
+                            alpha = f.getchannel('A')
+                            has_alpha = alpha.getextrema()[0] < 255
+                            
+                            if has_alpha or has_transparency:
+                                # 使用带透明度的量化
+                                # 创建一个mask：alpha < 128 的像素将被视为透明
+                                mask = Image.eval(alpha, lambda a: 255 if a < 128 else 0)
+                                
+                                # 量化时保留一个颜色用于透明
+                                p_frame = f.convert('RGB').quantize(colors=palette_colors)
+                                
+                                # 设置透明色
+                                # 找到调色板中的一个颜色作为透明色索引
+                                p_frame.info['transparency'] = 0
+                                
+                                # 将透明区域的像素设置为透明色索引
+                                p_data = list(p_frame.getdata())
+                                mask_data = list(mask.getdata())
+                                for i, m in enumerate(mask_data):
+                                    if m > 0:  # 透明区域
+                                        p_data[i] = 0
+                                p_frame.putdata(p_data)
+                                
+                                gif_frames.append(p_frame)
+                            else:
+                                # 无透明度，直接量化
+                                p_frame = f.convert('RGB').quantize(colors=palette_colors)
+                                gif_frames.append(p_frame)
+                        
+                        # 确保 durations 列表长度与帧数匹配
+                        while len(durations) < len(gif_frames):
+                            durations.append(100)
+                        durations = durations[:len(gif_frames)]
+                        
+                        # 保存 GIF（带透明度支持）
+                        save_kwargs = {
+                            'save_all': True,
+                            'append_images': gif_frames[1:] if len(gif_frames) > 1 else [],
+                            'duration': durations,
+                            'loop': 0,
+                            'disposal': 2,
+                        }
+                        
+                        # 如果有透明度，添加 transparency 参数
+                        if has_transparency or any('transparency' in f.info for f in gif_frames):
+                            save_kwargs['transparency'] = 0
+                        
+                        gif_frames[0].save(output_path, **save_kwargs)
+                        return gif_frames, None
+
+                    return None, "GIF没有帧数据"
+                    
+                finally:
+                    # 恢复原始设置
+                    ImageFile.LOAD_TRUNCATED_IMAGES = original_load_truncated
 
             result = await loop.run_in_executor(None, process_gif_in_thread)
 
