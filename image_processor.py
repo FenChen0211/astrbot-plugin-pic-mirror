@@ -400,15 +400,48 @@ class MirrorProcessor:
 
                 # 保存GIF
                 if len(frames) > 0:
-                    frames[0].save(
+                    # 统一所有帧的尺寸和模式（以第一帧为基准）
+                    target_size = frames[0].size
+                    target_mode = "RGBA"
+                    
+                    normalized_frames = []
+                    for f in frames:
+                        # 确保模式一致
+                        if f.mode != target_mode:
+                            f = f.convert(target_mode)
+                        # 确保尺寸一致
+                        if f.size != target_size:
+                            f = f.resize(target_size, Image.Resampling.LANCZOS)
+                        normalized_frames.append(f)
+                    
+                    # 根据配置的质量计算调色板颜色数 (quality 1-100 映射到 64-256 色)
+                    quality = config.output_quality if config else 85
+                    palette_colors = max(64, min(256, int(64 + (256 - 64) * quality / 100)))
+                    
+                    # 使用简化的方法：先转换为带透明度的 P模式
+                    # PIL 的 GIF 保存会自动处理大部分兼容性问题
+                    gif_frames = []
+                    for i, f in enumerate(normalized_frames):
+                        # 使用 RGBA -> quantize 的方式转换
+                        # 这样可以保留透明度信息
+                        p_frame = f.quantize(colors=palette_colors)
+                        gif_frames.append(p_frame)
+                    
+                    # 确保 durations 列表长度与帧数匹配
+                    while len(durations) < len(gif_frames):
+                        durations.append(100)  # 默认100ms
+                    durations = durations[:len(gif_frames)]
+                    
+                    # 保存 GIF
+                    gif_frames[0].save(
                         output_path,
                         save_all=True,
-                        append_images=frames[1:],
+                        append_images=gif_frames[1:] if len(gif_frames) > 1 else [],
                         duration=durations,
                         loop=0,
-                        optimize=True,
+                        disposal=2,
                     )
-                    return frames, None
+                    return gif_frames, None
 
                 return None, "GIF没有帧数据"
 

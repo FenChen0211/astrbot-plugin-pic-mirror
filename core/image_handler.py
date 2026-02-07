@@ -227,8 +227,9 @@ class ImageHandler:
     ):
         """处理单个图像"""
         try:
-            # 生成输出文件
-            output_filename = self.file_utils.generate_filename(source_info, mode)
+            # 从实际输入文件获取扩展名，确保 GIF 保持 .gif 扩展名
+            input_ext = input_path.suffix.lower() if input_path.suffix else None
+            output_filename = self.file_utils.generate_filename(source_info, mode, input_ext)
             output_path = self.data_dir / output_filename
 
             logger.info(f"处理图像: {input_path} -> {output_path}")

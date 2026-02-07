@@ -118,13 +118,14 @@ class FileUtils:
         ext = FileUtils.get_file_extension(url)
         return ext in FileUtils.SUPPORTED_FORMATS if ext else False
 
-    def generate_filename(self, original_url: str, mode: str) -> str:
+    def generate_filename(self, original_url: str, mode: str, input_ext: Optional[str] = None) -> str:
         """
         生成唯一的文件名（Base64优化版）
 
         Args:
             original_url: 原始图像URL或Base64数据
             mode: 对称模式
+            input_ext: 可选，实际输入文件的扩展名（优先使用）
 
         Returns:
             str: 生成的文件名
@@ -142,15 +143,19 @@ class FileUtils:
         hash_input = f"{hash_input}_{timestamp}_{random_token}"
         file_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:12]
 
-        # 尝试从原始URL获取扩展名
-        ext = FileUtils.get_file_extension(original_url)
+        # 优先使用传入的实际文件扩展名（确保 GIF 保持 .gif）
+        if input_ext and input_ext in FileUtils.SUPPORTED_FORMATS:
+            ext = input_ext
+        else:
+            # 尝试从原始URL获取扩展名
+            ext = FileUtils.get_file_extension(original_url)
 
-        if not ext:
-            # 如果没有扩展名，根据原始URL判断
-            if "qq_" in original_url or "avatar_" in original_url:
-                ext = ".jpg"
-            else:
-                ext = ".png"
+            if not ext:
+                # 如果没有扩展名，根据原始URL判断
+                if "qq_" in original_url or "avatar_" in original_url:
+                    ext = ".jpg"
+                else:
+                    ext = ".png"
 
         filename = f"mirror_{mode}_{file_hash}{ext}"
         # 检测碰撞
