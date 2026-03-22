@@ -63,7 +63,7 @@ class PluginConfig:
     # GIF总像素限制
     MIN_MAX_TOTAL_PIXELS = 500 * 500  # 2500万像素
     MAX_MAX_TOTAL_PIXELS = 10000 * 10000  # 1亿像素
-    max_total_pixels: int = 4000 * 4000  # GIF总像素限制 (约16亿像素)
+    max_total_pixels: int = 4000 * 4000  # GIF总像素限制 (约1600万像素)
 
     # 处理参数
     processing_timeout: int = 30  # 处理超时时间 (秒)
