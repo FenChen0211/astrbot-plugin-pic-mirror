@@ -41,6 +41,7 @@ class ConfigService:
             f"图像限制={config.image_size_limit_mb}MB, "
             f"GIF限制={config.gif_size_limit_mb}MB, "
             f"频率限制={config.rate_limit_per_minute}次/分钟, "
+            f"并发上限={config.max_concurrent_tasks}, "
             f"自动清理={'启用' if config.enable_auto_cleanup else '禁用'}, "
             f"@头像功能={'启用' if config.enable_at_avatar else '禁用'}"
         )
@@ -57,6 +58,7 @@ class ConfigService:
 • 右对称 / mirror right - 右半边对称到左边  
 • 上对称 / mirror top - 上半边对称到下面
 • 下对称 / mirror bottom - 下半边对称到上面
+• 反色 / invert - 反转图像颜色
 
 使用方法:
 1. 回复一条包含图像的消息，然后发送指令
@@ -68,7 +70,7 @@ class ConfigService:
 示例:
 回复图片消息后发送: 左对称
 @用户 并发送: 右对称
-图片 + 右对称"""
+图片 + 反色"""
         else:
             return f"""📷 图像对称插件使用说明 v{self.PLUGIN_VERSION}
 
@@ -76,6 +78,7 @@ class ConfigService:
 • 图像大小限制: {config.image_size_limit_mb}MB
 • GIF大小限制: {config.gif_size_limit_mb}MB
 • 频率限制: {config.rate_limit_per_minute}次/分钟
+• 并发处理上限: {config.max_concurrent_tasks}
 • GIF处理: {"✅ 已启用" if config.enable_gif else "❌ 已禁用"}
 • 自动清理: {"✅ 已启用" if config.enable_auto_cleanup else "❌ 已禁用"}
 • @头像功能: {"✅ 已启用" if config.enable_at_avatar else "❌ 已禁用"}
@@ -85,6 +88,7 @@ class ConfigService:
 • 右对称 / mirror right - 右半边对称到左边  
 • 上对称 / mirror top - 上半边对称到下面
 • 下对称 / mirror bottom - 下半边对称到上面
+• 反色 / invert - 反转图像颜色
 
 使用方法:
 1. 回复一条包含图像的消息，然后发送指令
@@ -98,7 +102,7 @@ class ConfigService:
 示例:
 回复图片消息后发送: 左对称
 @用户 并发送: 右对称
-图片 + 右对称
+图片 + 反色
 
 GitHub: https://github.com/FenChen0211/astrbot-plugin-pic-mirror"""
 

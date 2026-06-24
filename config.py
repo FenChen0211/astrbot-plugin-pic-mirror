@@ -31,6 +31,10 @@ class PluginConfig:
     # 频率限制范围 (次/分钟)
     MIN_RATE_LIMIT = 0
     MAX_RATE_LIMIT = 60
+
+    # 并发处理限制范围
+    MIN_MAX_CONCURRENT_TASKS = 1
+    MAX_MAX_CONCURRENT_TASKS = 10
     
     # GIF帧数限制范围
     MIN_GIF_FRAMES = 10
@@ -61,7 +65,7 @@ class PluginConfig:
     max_compression_dimension: int = 2048  # 压缩最大尺寸 (像素)
 
     # GIF总像素限制
-    MIN_MAX_TOTAL_PIXELS = 500 * 500  # 2500万像素
+    MIN_MAX_TOTAL_PIXELS = 500 * 500  # 25万像素
     MAX_MAX_TOTAL_PIXELS = 10000 * 10000  # 1亿像素
     max_total_pixels: int = 4000 * 4000  # GIF总像素限制 (约1600万像素)
 
@@ -81,6 +85,9 @@ class PluginConfig:
 
     # 频率限制
     rate_limit_per_minute: int = 10  # 每个用户每分钟最多请求次数
+
+    # 并发处理限制
+    max_concurrent_tasks: int = 3  # 同时处理的图像任务数
 
     # GIF设置
     max_gif_frames: int = 200  # GIF最大帧数限制
@@ -160,6 +167,7 @@ class PluginConfig:
                 keep_files_hours=safe_get("keep_files_hours", config.keep_files_hours, int),
                 enable_at_avatar=safe_get("enable_at_avatar", config.enable_at_avatar, bool),
                 rate_limit_per_minute=safe_get("rate_limit_per_minute", config.rate_limit_per_minute, int),
+                max_concurrent_tasks=safe_get("max_concurrent_tasks", config.max_concurrent_tasks, int),
                 max_gif_frames=safe_get("max_gif_frames", config.max_gif_frames, int),
                 cleanup_timeout=safe_get("cleanup_timeout", config.cleanup_timeout, float),
             )
@@ -198,5 +206,7 @@ class PluginConfig:
             raise ValueError(f"keep_files_hours must be between {self.MIN_KEEP_FILES_HOURS}-{self.MAX_KEEP_FILES_HOURS} hours")
         if not (self.MIN_RATE_LIMIT <= self.rate_limit_per_minute <= self.MAX_RATE_LIMIT):
             raise ValueError(f"rate_limit_per_minute must be between {self.MIN_RATE_LIMIT}-{self.MAX_RATE_LIMIT}")
+        if not (self.MIN_MAX_CONCURRENT_TASKS <= self.max_concurrent_tasks <= self.MAX_MAX_CONCURRENT_TASKS):
+            raise ValueError(f"max_concurrent_tasks must be between {self.MIN_MAX_CONCURRENT_TASKS}-{self.MAX_MAX_CONCURRENT_TASKS}")
         if not (self.MIN_GIF_FRAMES <= self.max_gif_frames <= self.MAX_GIF_FRAMES):
             raise ValueError(f"max_gif_frames must be between {self.MIN_GIF_FRAMES}-{self.MAX_GIF_FRAMES}")

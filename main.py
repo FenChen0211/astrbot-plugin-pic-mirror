@@ -66,11 +66,26 @@ class PicMirrorPlugin(Star):
         message_str = event.message_str.strip()
 
         plain_commands = {
+            "/左对称": "left_to_right",
             "左对称": "left_to_right",
+            "mirror left": "left_to_right",
+            "/右对称": "right_to_left",
             "右对称": "right_to_left",
+            "mirror right": "right_to_left",
+            "/上对称": "top_to_bottom",
             "上对称": "top_to_bottom",
+            "mirror top": "top_to_bottom",
+            "/下对称": "bottom_to_top",
             "下对称": "bottom_to_top",
+            "mirror bottom": "bottom_to_top",
+            "/反色": "invert",
+            "反色": "invert",
+            "颜色反转": "invert",
+            "invert": "invert",
+            "mirror invert": "invert",
+            "/对称帮助": "help",
             "对称帮助": "help",
+            "/镜像帮助": "help",
             "镜像帮助": "help",
         }
 

@@ -4,7 +4,7 @@
     "type": "int",
     "default": 10,
     "min": 1,
-    "max": 50,
+    "max": 100,
     "hint": "允许处理的普通图像文件最大大小，单位MB"
   },
   "gif_size_limit_mb": {
@@ -12,15 +12,39 @@
     "type": "int",
     "default": 15,
     "min": 1,
-    "max": 100,
+    "max": 200,
     "hint": "允许处理的GIF动画文件最大大小，单位MB"
+  },
+  "precheck_file_size_mb": {
+    "description": "预检查文件大小限制 (MB)",
+    "type": "int",
+    "default": 100,
+    "min": 10,
+    "max": 500,
+    "hint": "打开图像前允许读取的最大文件大小，用于提前拦截异常大文件"
+  },
+  "max_compression_dimension": {
+    "description": "压缩最大尺寸 (像素)",
+    "type": "int",
+    "default": 2048,
+    "min": 512,
+    "max": 8192,
+    "hint": "启用自动压缩时，图像最长边会压缩到不超过该值"
+  },
+  "max_total_pixels": {
+    "description": "GIF总像素限制",
+    "type": "int",
+    "default": 16000000,
+    "min": 250000,
+    "max": 100000000,
+    "hint": "GIF帧数乘以单帧像素数的安全上限，用于防止解压炸弹"
   },
   "processing_timeout": {
     "description": "处理超时时间 (秒)",
     "type": "int",
     "default": 30,
     "min": 5,
-    "max": 120,
+    "max": 300,
     "hint": "图像处理的最大超时时间"
   },
   "output_quality": {
@@ -60,7 +84,7 @@
     "type": "int",
     "default": 1,
     "min": 0,
-    "max": 24,
+    "max": 168,
     "hint": "生成的文件保留多少小时后自动删除 (0=立即删除)"
   },
   "enable_at_avatar": {
@@ -76,5 +100,37 @@
     "min": 0,
     "max": 60,
     "hint": "每个用户每分钟最多能请求多少次图像对称处理。设为0表示不限制（不推荐）。"
+  },
+  "max_concurrent_tasks": {
+    "description": "并发处理上限",
+    "type": "int",
+    "default": 3,
+    "min": 1,
+    "max": 10,
+    "hint": "插件同时处理图像任务的最大数量，用于提升高并发场景稳定性"
+  },
+  "max_gif_frames": {
+    "description": "GIF最大帧数",
+    "type": "int",
+    "default": 200,
+    "min": 10,
+    "max": 1000,
+    "hint": "单个GIF允许处理的最大帧数"
+  },
+  "cleanup_timeout": {
+    "description": "清理任务超时时间 (秒)",
+    "type": "float",
+    "default": 5.0,
+    "min": 1.0,
+    "max": 30.0,
+    "hint": "插件卸载时等待清理任务结束的最长时间"
+  },
+  "cleanup_loop_interval": {
+    "description": "清理循环间隔 (秒)",
+    "type": "int",
+    "default": 300,
+    "min": 60,
+    "max": 1800,
+    "hint": "后台定时清理生成文件的检查间隔"
   }
 }

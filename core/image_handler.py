@@ -59,6 +59,7 @@ class ImageHandler:
         # 频率限制相关初始化
         self._user_request_times = {}  # 格式: {user_id: [timestamp1, timestamp2...]}
         self._rate_limit_lock = asyncio.Lock()
+        self._processing_semaphore = asyncio.Semaphore(self.config.max_concurrent_tasks)
 
         # 初始化清理任务
         self._cleanup_task = None
@@ -97,6 +98,9 @@ class ImageHandler:
 
     async def check_rate_limit(self, user_id: str) -> Tuple[bool, Optional[str]]:
         """检查用户请求频率限制"""
+        if not self.config.rate_limit_enabled:
+            return True, None
+
         current_time = time.time()
         window_start = current_time - self.RATE_LIMIT_WINDOW_SECONDS
 
@@ -148,52 +152,53 @@ class ImageHandler:
                 yield self._get_error_message(event, error_msg)
                 return
 
-            logger.info(f"开始处理图像对称请求，用户: {user_id}, 模式: {mode}")
+            async with self._processing_semaphore:
+                logger.info(f"开始处理图像对称请求，用户: {user_id}, 模式: {mode}")
 
-            # 1. 尝试获取@的用户头像
-            if self.config.enable_at_avatar:
-                at_qq = self.message_utils.extract_at_qq(event)
-                if at_qq:
-                    async for result in self._process_avatar(event, at_qq, mode):
-                        yield result
+                # 1. 尝试获取@的用户头像
+                if self.config.enable_at_avatar:
+                    at_qq = self.message_utils.extract_at_qq(event)
+                    if at_qq:
+                        async for result in self._process_avatar(event, at_qq, mode):
+                            yield result
+                        return
+
+                # 2. 提取图像源
+                image_sources = self.message_utils.extract_image_sources(event)
+                logger.info(f"找到的图像源: {len(image_sources)}个")
+
+                if not image_sources:
+                    yield self._get_error_message(event, "未找到图像")
                     return
 
-            # 2. 提取图像源
-            image_sources = self.message_utils.extract_image_sources(event)
-            logger.info(f"找到的图像源: {len(image_sources)}个")
+                # 3. 发送处理中提示（非静默模式）
+                if not self.config.silent_mode:
+                    processing_msg = MirrorProcessor.get_mode_description(mode)
+                    yield event.plain_result(f"🔄 正在处理图像: {processing_msg}...")
 
-            if not image_sources:
-                yield self._get_error_message(event, "未找到图像")
-                return
+                # 4. 处理图像源
+                processed = False
 
-            # 3. 发送处理中提示（非静默模式）
-            if not self.config.silent_mode:
-                processing_msg = MirrorProcessor.get_mode_description(mode)
-                yield event.plain_result(f"🔄 正在处理图像: {processing_msg}...")
+                for image_source in image_sources:
+                    try:
+                        input_path = await self._prepare_image_file(image_source)
+                        if not input_path:
+                            continue
 
-            # 4. 处理图像源
-            processed = False
+                        async for result in self._process_single_image(
+                            event, input_path, mode, str(image_source)
+                        ):
+                            yield result
+                            processed = True
 
-            for image_source in image_sources:
-                try:
-                    input_path = await self._prepare_image_file(image_source)
-                    if not input_path:
+                    except Exception as e:
+                        logger.error(
+                            f"处理图像源失败 {image_source}: {str(e)}", exc_info=True
+                        )
                         continue
 
-                    async for result in self._process_single_image(
-                        event, input_path, mode, str(image_source)
-                    ):
-                        yield result
-                        processed = True
-
-                except Exception as e:
-                    logger.error(
-                        f"处理图像源失败 {image_source}: {str(e)}", exc_info=True
-                    )
-                    continue
-
-            if not processed:
-                yield self._get_error_message(event, "处理失败", "未能处理任何图像")
+                if not processed:
+                    yield self._get_error_message(event, "处理失败", "未能处理任何图像")
 
         except Exception as e:
             logger.error(f"处理指令异常: {str(e)}", exc_info=True)

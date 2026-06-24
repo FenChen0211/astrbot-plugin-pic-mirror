@@ -7,7 +7,7 @@ import io
 import os
 from pathlib import Path
 from typing import Tuple, Optional
-from PIL import Image, ImageSequence, ImageFile
+from PIL import Image, ImageOps, ImageSequence, ImageFile
 
 # 注意：PIL全局设置已移除，避免影响其他插件
 
@@ -185,7 +185,7 @@ class MirrorProcessor:
                     elif img.mode == "LA":
                         img = img.convert("RGBA")
 
-                    # 应用对称变换
+                    # 应用图像变换
                     mirrored = MirrorProcessor._apply_mirror(img, mode)
 
                     # 应用压缩（如果启用）
@@ -398,7 +398,7 @@ class MirrorProcessor:
                             elif frame_copy.mode != "RGBA":
                                 frame_copy = frame_copy.convert("RGBA")
 
-                            # 应用对称变换
+                            # 应用图像变换
                             mirrored_frame = MirrorProcessor._apply_mirror(frame_copy, mode)
 
                             # 应用压缩（如果启用）
@@ -508,7 +508,7 @@ class MirrorProcessor:
     @staticmethod
     def _apply_mirror(image: Image.Image, mode: str) -> Image.Image:
         """
-        应用对称变换
+        应用图像变换
 
         Args:
             image: PIL图像对象
@@ -517,8 +517,10 @@ class MirrorProcessor:
         Returns:
             Image.Image: 变换后的图像
         """
-        width, height = image.size
+        if mode == "invert":
+            return MirrorProcessor._apply_invert(image)
 
+        width, height = image.size
         # 创建新图像
         result = Image.new(image.mode, (width, height))
 
@@ -580,6 +582,29 @@ class MirrorProcessor:
         return result
 
     @staticmethod
+    def _apply_invert(image: Image.Image) -> Image.Image:
+        """反转图像颜色，保留透明通道。"""
+        if image.mode == "RGBA":
+            red, green, blue, alpha = image.split()
+            rgb = Image.merge("RGB", (red, green, blue))
+            inverted = ImageOps.invert(rgb)
+            inverted.putalpha(alpha)
+            return inverted
+
+        if image.mode == "LA":
+            luminance, alpha = image.split()
+            inverted = ImageOps.invert(luminance)
+            return Image.merge("LA", (inverted, alpha))
+
+        if image.mode == "L":
+            return ImageOps.invert(image)
+
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        return ImageOps.invert(image)
+
+    @staticmethod
     def get_mode_description(mode: str) -> str:
         """
         获取对称模式的描述
@@ -595,5 +620,6 @@ class MirrorProcessor:
             "right_to_left": "右半边图像对称到左边",
             "top_to_bottom": "上半边图像对称到下面",
             "bottom_to_top": "下半边图像对称到上面",
+            "invert": "反转图像颜色",
         }
         return descriptions.get(mode, "未知对称模式")

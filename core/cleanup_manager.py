@@ -159,7 +159,10 @@ class CleanupManager:
             self._track_task(task)
         else:
             expiry_time = time.time() + (keep_hours * 3600)
-            asyncio.create_task(self._add_to_cleanup_queue(file_path, keep_hours, expiry_time))
+            task = asyncio.create_task(
+                self._add_to_cleanup_queue(file_path, keep_hours, expiry_time)
+            )
+            self._track_task(task)
             logger.info(f"已安排清理 {file_path.name}, {keep_hours}小时后删除")
 
     async def _cleanup_immediately(self, file_path: Path):
