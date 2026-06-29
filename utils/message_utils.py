@@ -2,6 +2,7 @@
 消息解析工具模块
 """
 
+from pathlib import Path
 from typing import List, Optional
 import astrbot.api.message_components as Comp
 from astrbot.api import logger
@@ -53,7 +54,7 @@ class MessageUtils:
 
             for component in messages:
                 if isinstance(component, Comp.Image):
-                    url = MessageUtils._extract_from_image_component(component)
+                    url = MessageUtils._extract_from_image_component(component, event)
                     if url:
                         image_sources.append(url)
                         logger.debug(f"提取到图片: {url[:50]}...")
@@ -63,11 +64,11 @@ class MessageUtils:
                         for reply_component in component.chain:
                             if isinstance(reply_component, Comp.Image):
                                 url = MessageUtils._extract_from_image_component(
-                                    reply_component
+                                    reply_component, event
                                 )
                                 if url:
                                     image_sources.append(url)
-                                    logger.debug(f"从回复消息提取到图片")
+                                    logger.debug("从回复消息提取到图片")
 
             logger.debug(f"总共找到 {len(image_sources)} 个图像源")
             return image_sources
@@ -77,7 +78,9 @@ class MessageUtils:
             return []
 
     @staticmethod
-    def _extract_from_image_component(component: Comp.Image) -> Optional[str]:
+    def _extract_from_image_component(
+        component: Comp.Image, event=None
+    ) -> Optional[str]:
         """
         从Image组件提取图像URL
 
@@ -87,35 +90,59 @@ class MessageUtils:
         Returns:
             图像URL或数据
         """
-        # 优先检查url属性
-        if hasattr(component, "url") and component.url:
-            logger.debug(f"从Image组件找到url属性")  # ✅ debug级别
-            return component.url
-
-        # 其次检查file属性
-        if hasattr(component, "file") and component.file:
-            logger.debug(f"从Image组件找到file属性")  # ✅ debug级别
-
-            # 如果是base64格式
-            if isinstance(component.file, str) and component.file.startswith(
-                "base64://"
-            ):
-                return component.file
-            # 如果是普通字符串
-            elif isinstance(component.file, str):
-                return component.file
-
-        # 检查其他可能的属性
-        for attr_name in ["data", "path", "content"]:
+        # AstrBot 4.26.0+ 会将媒体落到本地，并把路径放入 path/file。
+        for attr_name in ["path", "file", "url", "data", "content"]:
             if hasattr(component, attr_name):
                 attr_value = getattr(component, attr_name)
-                if attr_value:
+                if isinstance(attr_value, str) and attr_value:
                     logger.debug(f"从Image组件找到{attr_name}属性")  # ✅ debug级别
-                    if isinstance(attr_value, str):
-                        return attr_value
+                    return MessageUtils._recover_original_gif(event, attr_value)
 
-        logger.debug(f"Image组件没有找到有效的URL属性")  # ✅ debug级别
+        logger.debug("Image组件没有找到有效的URL属性")  # ✅ debug级别
         return None
+
+    @staticmethod
+    def get_trusted_event_media_paths(event) -> List[str]:
+        """获取 AstrBot 为当前事件登记的临时媒体路径。"""
+        paths = getattr(event, "_temporary_local_files", None)
+        if not isinstance(paths, (list, tuple, set)):
+            return []
+        return [str(path) for path in paths if isinstance(path, (str, Path))]
+
+    @staticmethod
+    def _recover_original_gif(event, source: str) -> str:
+        """在 AstrBot 4.26.0 的 JPEG 预处理结果前找回原始 GIF。"""
+        if event is None:
+            return source
+
+        source_path = Path(source)
+        if (
+            source_path.suffix.lower() not in {".jpg", ".jpeg"}
+            or not source_path.name.startswith("media_image_")
+        ):
+            return source
+
+        tracked_paths = MessageUtils.get_trusted_event_media_paths(event)
+        try:
+            source_resolved = source_path.resolve()
+        except OSError:
+            return source
+
+        for index, tracked in enumerate(tracked_paths):
+            try:
+                if Path(tracked).resolve() != source_resolved or index == 0:
+                    continue
+                original_path = Path(tracked_paths[index - 1]).resolve()
+                if not original_path.is_file():
+                    return source
+                with original_path.open("rb") as file:
+                    if file.read(6) in {b"GIF87a", b"GIF89a"}:
+                        logger.debug("从 AstrBot 临时文件记录中恢复原始 GIF")
+                        return str(original_path)
+            except OSError:
+                return source
+
+        return source
 
     @staticmethod
     def extract_command_text(event) -> Optional[str]:

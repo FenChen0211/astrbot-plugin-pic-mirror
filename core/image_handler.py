@@ -10,7 +10,8 @@ import tempfile
 import time
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
+from urllib.parse import unquote, urlparse
 from astrbot.api import logger
 from astrbot.api.star import StarTools
 import astrbot.api.message_components as Comp
@@ -51,6 +52,7 @@ class ImageHandler:
         # 传递插件名给CleanupManager
         self.plugin_name = plugin_name or PLUGIN_NAME
         self.cleanup_manager = CleanupManager(self.config, self.plugin_name)
+        self._last_prepare_error: Optional[str] = None
 
         # 数据目录
         self.data_dir = StarTools.get_data_dir(self.plugin_name)
@@ -165,6 +167,9 @@ class ImageHandler:
 
                 # 2. 提取图像源
                 image_sources = self.message_utils.extract_image_sources(event)
+                trusted_local_paths = set(
+                    self.message_utils.get_trusted_event_media_paths(event)
+                )
                 logger.info(f"找到的图像源: {len(image_sources)}个")
 
                 if not image_sources:
@@ -178,11 +183,22 @@ class ImageHandler:
 
                 # 4. 处理图像源
                 processed = False
+                reported_failure = False
 
                 for image_source in image_sources:
                     try:
-                        input_path = await self._prepare_image_file(image_source)
+                        input_path = await self._prepare_image_file(
+                            image_source, trusted_local_paths
+                        )
                         if not input_path:
+                            if self._last_prepare_error:
+                                reported_failure = True
+                                yield self._get_error_message(
+                                    event,
+                                    "处理失败",
+                                    self._last_prepare_error,
+                                )
+                                self._last_prepare_error = None
                             continue
 
                         async for result in self._process_single_image(
@@ -197,7 +213,7 @@ class ImageHandler:
                         )
                         continue
 
-                if not processed:
+                if not processed and not reported_failure:
                     yield self._get_error_message(event, "处理失败", "未能处理任何图像")
 
         except Exception as e:
@@ -268,20 +284,32 @@ class ImageHandler:
             logger.error(f"处理单图像失败: {str(e)}", exc_info=True)
             yield self._get_error_message(event, "处理失败")
 
-    async def _prepare_image_file(self, image_source: str) -> Optional[Path]:
+    async def _prepare_image_file(
+        self,
+        image_source: str,
+        trusted_local_paths=None,
+    ) -> Optional[Path]:
         """准备图像文件 - 优化版"""
+        self._last_prepare_error = None
+
         # 如果是URL，下载
         if image_source.startswith(("http://", "https://")):
-            return await self._download_image(image_source)
+            path = await self._download_image(image_source)
+            if not path:
+                self._last_prepare_error = "图片下载失败或图片格式不受支持"
+            return path
 
         # 如果是base64，提前计算摘要传递
         elif image_source.startswith("base64://"):
             source_hash = hashlib.md5(image_source.encode()).hexdigest()[:16]
-            return await self._decode_base64_image(image_source, source_hash)
+            path = await self._decode_base64_image(image_source, source_hash)
+            if not path:
+                self._last_prepare_error = "Base64 图片解析失败或图片超过大小限制"
+            return path
 
         # 本地文件
         else:
-            return self._get_local_file(image_source)
+            return self._get_local_file(image_source, trusted_local_paths)
 
     async def _download_image(self, url: str) -> Optional[Path]:
         """下载图像并正确识别格式"""
@@ -337,16 +365,36 @@ class ImageHandler:
             logger.error(f"base64解码失败: {e}")
             return None
 
-    def _get_local_file(self, file_path: str) -> Optional[Path]:
+    def _get_local_file(
+        self, file_path: str, trusted_local_paths=None
+    ) -> Optional[Path]:
         """获取本地文件 - 安全版本（防路径遍历）"""
         try:
-            # 只允许相对路径，且必须在data_dir内
-            clean_path = Path(file_path)
+            clean_path = self._local_reference_to_path(file_path)
 
-            # 检查是否为相对路径（不允许绝对路径）
+            # 仅接受 AstrBot 为当前事件登记过的绝对路径。
             if clean_path.is_absolute():
-                logger.warning(f"拒绝绝对路径: {file_path}")
-                return None
+                trusted_resolved = set()
+                for trusted_path in trusted_local_paths or ():
+                    try:
+                        trusted_resolved.add(
+                            self._local_reference_to_path(trusted_path).resolve()
+                        )
+                    except (OSError, ValueError):
+                        continue
+
+                resolved_path = clean_path.resolve()
+                if resolved_path not in trusted_resolved:
+                    logger.warning(f"拒绝未受信任的绝对路径: {file_path}")
+                    self._last_prepare_error = (
+                        "已拒绝未由 AstrBot 当前消息提供的绝对路径。"
+                        "请回复/发送图片，或使用插件数据目录内的相对文件名。"
+                    )
+                    return None
+                if not resolved_path.is_file():
+                    self._last_prepare_error = f"本地媒体文件不存在: {clean_path}"
+                    return None
+                return resolved_path
 
             # 构建安全路径
             safe_path = (self.data_dir / clean_path).resolve()
@@ -357,13 +405,38 @@ class ImageHandler:
             if safe_path.is_relative_to(data_dir_resolved):
                 if safe_path.exists():
                     return safe_path
+                self._last_prepare_error = f"本地文件不存在: {clean_path}"
             else:
                 logger.warning(f"路径越界: {file_path}")
+                self._last_prepare_error = (
+                    "路径超出插件数据目录，已拒绝读取。请使用插件数据目录内的相对路径。"
+                )
 
         except Exception as e:
             logger.warning(f"本地路径解析失败 {file_path}: {e}")
+            self._last_prepare_error = f"本地路径解析失败: {e}"
 
         return None
+
+    @staticmethod
+    def _local_reference_to_path(file_path: str) -> Path:
+        """将普通路径或 file URI 转换为本地路径。"""
+        if not isinstance(file_path, str):
+            raise ValueError("本地路径必须是字符串")
+
+        parsed = urlparse(file_path)
+        if parsed.scheme.lower() != "file":
+            return Path(file_path)
+
+        netloc = unquote(parsed.netloc or "")
+        path = unquote(parsed.path or "")
+        if re.fullmatch(r"[A-Za-z]:", netloc):
+            return Path(f"{netloc}{path}")
+        if re.match(r"^/[A-Za-z]:/", path):
+            path = path[1:]
+        if netloc and netloc.lower() != "localhost":
+            path = f"//{netloc}{path}"
+        return Path(path)
 
     async def _save_temp_file(
         self, data: bytes, prefix: str, extension: str

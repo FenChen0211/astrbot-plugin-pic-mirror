@@ -3,7 +3,6 @@
 """
 
 import asyncio
-import io
 import os
 from pathlib import Path
 from typing import Tuple, Optional
@@ -19,6 +18,8 @@ from astrbot.api import logger
 
 class MirrorProcessor:
     """图像对称处理器"""
+
+    GIF_TRANSPARENT_INDEX = 255
 
     @staticmethod
     def _check_image_size(img: Image.Image) -> bool:
@@ -334,8 +335,6 @@ class MirrorProcessor:
                 try:
                     frames = []
                     durations = []
-                    has_transparency = False  # 标记是否有透明度
-
                     with Image.open(input_path) as img:
                         # 检查GIF整体尺寸安全性
                         if not MirrorProcessor._check_image_size(img):
@@ -343,10 +342,6 @@ class MirrorProcessor:
                                 None,
                                 f"GIF尺寸过大，可能存在安全风险: {img.width}x{img.height}像素",
                             )
-
-                        # 检测原始GIF是否有透明度
-                        if 'transparency' in img.info:
-                            has_transparency = True
 
                         MAX_FRAMES = (
                             config.max_gif_frames if config else 200
@@ -385,10 +380,6 @@ class MirrorProcessor:
                             # 记录每帧持续时间
                             durations.append(frame.info.get("duration", 100))
                             
-                            # 检测帧是否有透明度
-                            if 'transparency' in frame.info:
-                                has_transparency = True
-
                             # 复制帧并转换为 RGBA（确保帧数据独立，避免迭代器问题）
                             frame_copy = frame.copy()
                             if frame_copy.mode == "P":
@@ -431,42 +422,23 @@ class MirrorProcessor:
                             normalized_frames.append(f)
                         
                         # 根据配置的质量计算调色板颜色数 (quality 1-100 映射到 64-255 色)
-                        # 保留255色以预留透明色索引
+                        # 如有透明像素，固定预留 255 作为透明索引，避免误伤可见颜色。
                         quality = config.output_quality if config else 85
                         palette_colors = max(64, min(255, int(64 + (255 - 64) * quality / 100)))
+                        has_transparent_pixels = any(
+                            f.getchannel("A").getextrema()[0] < 255
+                            for f in normalized_frames
+                        )
                         
                         # 转换为 P 模式，保留透明度
                         gif_frames = []
                         for f in normalized_frames:
-                            # 检查是否有透明像素
-                            alpha = f.getchannel('A')
-                            has_alpha = alpha.getextrema()[0] < 255
-                            
-                            if has_alpha or has_transparency:
-                                # 使用带透明度的量化
-                                # 创建一个mask：alpha < 128 的像素将被视为透明
-                                mask = Image.eval(alpha, lambda a: 255 if a < 128 else 0)
-                                
-                                # 量化时保留一个颜色用于透明
-                                p_frame = f.convert('RGB').quantize(colors=palette_colors)
-                                
-                                # 设置透明色
-                                # 找到调色板中的一个颜色作为透明色索引
-                                p_frame.info['transparency'] = 0
-                                
-                                # 将透明区域的像素设置为透明色索引
-                                p_data = list(p_frame.getdata())
-                                mask_data = list(mask.getdata())
-                                for i, m in enumerate(mask_data):
-                                    if m > 0:  # 透明区域
-                                        p_data[i] = 0
-                                p_frame.putdata(p_data)
-                                
-                                gif_frames.append(p_frame)
-                            else:
-                                # 无透明度，直接量化
-                                p_frame = f.convert('RGB').quantize(colors=palette_colors)
-                                gif_frames.append(p_frame)
+                            p_frame = MirrorProcessor._rgba_to_gif_frame(
+                                f,
+                                palette_colors,
+                                has_transparent_pixels,
+                            )
+                            gif_frames.append(p_frame)
                         
                         # 确保 durations 列表长度与帧数匹配
                         while len(durations) < len(gif_frames):
@@ -482,9 +454,9 @@ class MirrorProcessor:
                             'disposal': 2,
                         }
                         
-                        # 如果有透明度，添加 transparency 参数
-                        if has_transparency or any('transparency' in f.info for f in gif_frames):
-                            save_kwargs['transparency'] = 0
+                        # 如果有透明度，添加固定透明索引参数
+                        if has_transparent_pixels:
+                            save_kwargs['transparency'] = MirrorProcessor.GIF_TRANSPARENT_INDEX
                         
                         gif_frames[0].save(output_path, **save_kwargs)
                         return gif_frames, None
@@ -580,6 +552,43 @@ class MirrorProcessor:
             return image.copy()
 
         return result
+
+    @staticmethod
+    def _rgba_to_gif_frame(
+        image: Image.Image,
+        palette_colors: int,
+        reserve_transparency: bool,
+    ) -> Image.Image:
+        """将 RGBA 帧量化为 GIF 帧，必要时保留独立透明索引。"""
+        if image.mode != "RGBA":
+            image = image.convert("RGBA")
+
+        alpha = image.getchannel("A")
+        has_alpha = alpha.getextrema()[0] < 255
+        colors = min(palette_colors, 255) if reserve_transparency else palette_colors
+        p_frame = image.convert("RGB").quantize(colors=colors)
+
+        if not reserve_transparency:
+            return p_frame
+
+        palette = p_frame.getpalette() or []
+        if len(palette) < 768:
+            palette.extend([0] * (768 - len(palette)))
+        transparent_index = MirrorProcessor.GIF_TRANSPARENT_INDEX
+        palette[transparent_index * 3: transparent_index * 3 + 3] = [0, 0, 0]
+        p_frame.putpalette(palette)
+
+        if has_alpha:
+            mask = Image.eval(alpha, lambda a: 255 if a < 128 else 0)
+            p_data = list(p_frame.getdata())
+            mask_data = list(mask.getdata())
+            for i, mask_value in enumerate(mask_data):
+                if mask_value:
+                    p_data[i] = transparent_index
+            p_frame.putdata(p_data)
+
+        p_frame.info["transparency"] = transparent_index
+        return p_frame
 
     @staticmethod
     def _apply_invert(image: Image.Image) -> Image.Image:
