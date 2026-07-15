@@ -4,6 +4,7 @@
 
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import unquote, urlparse
 import astrbot.api.message_components as Comp
 from astrbot.api import logger
 
@@ -91,7 +92,30 @@ class MessageUtils:
             图像URL或数据
         """
         # AstrBot 4.26.0+ 会将媒体落到本地，并把路径放入 path/file。
-        for attr_name in ["path", "file", "url", "data", "content"]:
+        path = getattr(component, "path", None)
+        if isinstance(path, str) and path:
+            logger.debug("从Image组件找到path属性")
+            return MessageUtils._recover_original_gif(event, path)
+
+        file_value = getattr(component, "file", None)
+        url = getattr(component, "url", None)
+        if (
+            isinstance(file_value, str)
+            and file_value
+            and (
+                not isinstance(url, str)
+                or not url
+                or MessageUtils._is_direct_image_source(file_value)
+            )
+        ):
+            logger.debug("从Image组件找到可直接使用的file属性")
+            return MessageUtils._recover_original_gif(event, file_value)
+
+        if isinstance(url, str) and url:
+            logger.debug("从Image组件找到url属性")
+            return MessageUtils._recover_original_gif(event, url)
+
+        for attr_name in ["data", "content"]:
             if hasattr(component, attr_name):
                 attr_value = getattr(component, attr_name)
                 if isinstance(attr_value, str) and attr_value:
@@ -100,6 +124,16 @@ class MessageUtils:
 
         logger.debug("Image组件没有找到有效的URL属性")  # ✅ debug级别
         return None
+
+    @staticmethod
+    def _is_direct_image_source(value: str) -> bool:
+        """判断 file 字段是否是可直接处理的媒体引用。"""
+        if value.startswith(("http://", "https://", "base64://", "file://")):
+            return True
+        try:
+            return MessageUtils._local_reference_to_path(value).is_file()
+        except (OSError, ValueError):
+            return False
 
     @staticmethod
     def get_trusted_event_media_paths(event) -> List[str]:
@@ -115,7 +149,7 @@ class MessageUtils:
         if event is None:
             return source
 
-        source_path = Path(source)
+        source_path = MessageUtils._local_reference_to_path(source)
         if (
             source_path.suffix.lower() not in {".jpg", ".jpeg"}
             or not source_path.name.startswith("media_image_")
@@ -130,9 +164,15 @@ class MessageUtils:
 
         for index, tracked in enumerate(tracked_paths):
             try:
-                if Path(tracked).resolve() != source_resolved or index == 0:
+                if (
+                    MessageUtils._local_reference_to_path(tracked).resolve()
+                    != source_resolved
+                    or index == 0
+                ):
                     continue
-                original_path = Path(tracked_paths[index - 1]).resolve()
+                original_path = MessageUtils._local_reference_to_path(
+                    tracked_paths[index - 1]
+                ).resolve()
                 if not original_path.is_file():
                     return source
                 with original_path.open("rb") as file:
@@ -143,6 +183,26 @@ class MessageUtils:
                 return source
 
         return source
+
+    @staticmethod
+    def _local_reference_to_path(value: str) -> Path:
+        """将普通路径或 file URI 规范化为 Path。"""
+        if not isinstance(value, str):
+            raise ValueError("本地路径必须是字符串")
+
+        parsed = urlparse(value)
+        if parsed.scheme.lower() != "file":
+            return Path(value)
+
+        netloc = unquote(parsed.netloc or "")
+        path = unquote(parsed.path or "")
+        if len(netloc) == 2 and netloc[1] == ":":
+            return Path(f"{netloc}{path}")
+        if len(path) >= 3 and path[0] == "/" and path[2] == ":":
+            path = path[1:]
+        if netloc and netloc.lower() != "localhost":
+            path = f"//{netloc}{path}"
+        return Path(path)
 
     @staticmethod
     def extract_command_text(event) -> Optional[str]:
