@@ -160,7 +160,7 @@ class ImageHandler:
                 # 1. 尝试获取@的用户头像
                 if self.config.enable_at_avatar:
                     at_qq = self.message_utils.extract_at_qq(event)
-                    if at_qq:
+                    if at_qq and self._can_process_qq_avatar(event, at_qq):
                         async for result in self._process_avatar(event, at_qq, mode):
                             yield result
                         return
@@ -219,6 +219,28 @@ class ImageHandler:
         except Exception as e:
             logger.error(f"处理指令异常: {str(e)}", exc_info=True)
             yield self._get_error_message(event, "处理失败", str(e))
+
+    @staticmethod
+    def _can_process_qq_avatar(event, target: str) -> bool:
+        """仅在 OneBot 消息中将 @目标解释为可查询的 QQ 头像。"""
+        platform_name = ""
+        try:
+            platform_name = str(event.get_platform_name()).lower()
+        except (AttributeError, TypeError):
+            pass
+
+        if platform_name != "aiocqhttp":
+            logger.debug(
+                f"跳过 @头像处理: {platform_name or '未知'} 平台的 At 目标不是可用于 qlogo 的 QQ 号"
+            )
+            return False
+
+        # qlogo 接口只接受真实 QQ UIN。避免将平台自身的唤醒标记或 OpenID 当作 QQ 号。
+        if not re.fullmatch(r"[1-9]\d{4,11}", str(target)):
+            logger.debug(f"跳过无效 QQ 头像目标: {target}")
+            return False
+
+        return True
 
     async def _process_avatar(self, event, qq_number: str, mode: str):
         """处理用户头像"""
