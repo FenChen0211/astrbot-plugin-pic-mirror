@@ -40,43 +40,56 @@ class MessageUtils:
         return None
 
     @staticmethod
-    def extract_image_sources(event) -> List[str]:
-        """提取图像源 - 使用标准API"""
-        image_sources = []
-        seen_sources = set()
+    def extract_image_source_groups(event) -> List[List[str]]:
+        """提取图片及其按优先级排列的候选来源。"""
+        image_source_groups = []
+        seen_groups = set()
 
-        def add_image_sources(component: Comp.Image) -> None:
-            for source in MessageUtils._extract_image_component_sources(component, event):
-                if source not in seen_sources:
-                    seen_sources.add(source)
-                    image_sources.append(source)
+        def add_image_component(component: Comp.Image) -> None:
+            sources = MessageUtils._extract_image_component_sources(component, event)
+            if not sources:
+                return
+
+            source_group = tuple(sources)
+            if source_group not in seen_groups:
+                seen_groups.add(source_group)
+                image_source_groups.append(sources)
 
         try:
             messages = event.get_messages()
 
             if not messages:
                 logger.debug("event.get_messages() 返回空")
-                return image_sources
+                return image_source_groups
 
             logger.debug(f"从get_messages()获取到消息链，长度: {len(messages)}")
 
             for component in messages:
                 if isinstance(component, Comp.Image):
-                    add_image_sources(component)
+                    add_image_component(component)
 
                 elif isinstance(component, Comp.Reply):
                     if hasattr(component, "chain") and component.chain:
                         for reply_component in component.chain:
                             if isinstance(reply_component, Comp.Image):
-                                add_image_sources(reply_component)
+                                add_image_component(reply_component)
                                 logger.debug("从回复消息提取到图片")
 
-            logger.debug(f"总共找到 {len(image_sources)} 个图像源")
-            return image_sources
+            logger.debug(f"总共找到 {len(image_source_groups)} 组图片来源")
+            return image_source_groups
 
         except (AttributeError, TypeError, KeyError, IndexError, ValueError) as e:
             logger.error(f"提取图像源失败: {type(e).__name__}: {e}", exc_info=True)
             return []
+
+    @staticmethod
+    def extract_image_sources(event) -> List[str]:
+        """兼容旧调用：返回所有候选来源构成的扁平列表。"""
+        return [
+            source
+            for source_group in MessageUtils.extract_image_source_groups(event)
+            for source in source_group
+        ]
 
     @staticmethod
     def _extract_from_image_component(

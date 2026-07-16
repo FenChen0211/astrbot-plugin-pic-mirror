@@ -165,14 +165,16 @@ class ImageHandler:
                             yield result
                         return
 
-                # 2. 提取图像源
-                image_sources = self.message_utils.extract_image_sources(event)
+                # 2. 提取图片及其候选来源。每组只处理一个成功准备的来源。
+                image_source_groups = self.message_utils.extract_image_source_groups(
+                    event
+                )
                 trusted_local_paths = set(
                     self.message_utils.get_trusted_event_media_paths(event)
                 )
-                logger.info(f"找到的图像源: {len(image_sources)}个")
+                logger.info(f"找到的图像: {len(image_source_groups)}个")
 
-                if not image_sources:
+                if not image_source_groups:
                     yield self._get_error_message(event, "未找到图像")
                     return
 
@@ -181,32 +183,35 @@ class ImageHandler:
                     processing_msg = MirrorProcessor.get_mode_description(mode)
                     yield event.plain_result(f"🔄 正在处理图像: {processing_msg}...")
 
-                # 4. 处理图像源
+                # 4. 处理图像。仅在前一个候选来源无法准备时尝试下一项。
                 processed = False
                 prepare_errors = []
 
-                for image_source in image_sources:
-                    try:
-                        input_path = await self._prepare_image_file(
-                            image_source, trusted_local_paths
-                        )
-                        if not input_path:
-                            if self._last_prepare_error:
-                                prepare_errors.append(self._last_prepare_error)
-                                self._last_prepare_error = None
+                for image_sources in image_source_groups:
+                    for image_source in image_sources:
+                        try:
+                            input_path = await self._prepare_image_file(
+                                image_source, trusted_local_paths
+                            )
+                            if not input_path:
+                                if self._last_prepare_error:
+                                    prepare_errors.append(self._last_prepare_error)
+                                    self._last_prepare_error = None
+                                continue
+
+                            async for result in self._process_single_image(
+                                event, input_path, mode, str(image_source)
+                            ):
+                                yield result
+                                processed = True
+                            break
+
+                        except Exception as e:
+                            logger.error(
+                                f"处理图像源失败 {image_source}: {str(e)}",
+                                exc_info=True,
+                            )
                             continue
-
-                        async for result in self._process_single_image(
-                            event, input_path, mode, str(image_source)
-                        ):
-                            yield result
-                            processed = True
-
-                    except Exception as e:
-                        logger.error(
-                            f"处理图像源失败 {image_source}: {str(e)}", exc_info=True
-                        )
-                        continue
 
                 if not processed:
                     message = prepare_errors[-1] if prepare_errors else "未能处理任何图像"
