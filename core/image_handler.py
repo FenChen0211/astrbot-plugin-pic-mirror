@@ -183,7 +183,7 @@ class ImageHandler:
 
                 # 4. 处理图像源
                 processed = False
-                reported_failure = False
+                prepare_errors = []
 
                 for image_source in image_sources:
                     try:
@@ -192,12 +192,7 @@ class ImageHandler:
                         )
                         if not input_path:
                             if self._last_prepare_error:
-                                reported_failure = True
-                                yield self._get_error_message(
-                                    event,
-                                    "处理失败",
-                                    self._last_prepare_error,
-                                )
+                                prepare_errors.append(self._last_prepare_error)
                                 self._last_prepare_error = None
                             continue
 
@@ -213,8 +208,9 @@ class ImageHandler:
                         )
                         continue
 
-                if not processed and not reported_failure:
-                    yield self._get_error_message(event, "处理失败", "未能处理任何图像")
+                if not processed:
+                    message = prepare_errors[-1] if prepare_errors else "未能处理任何图像"
+                    yield self._get_error_message(event, "处理失败", message)
 
         except Exception as e:
             logger.error(f"处理指令异常: {str(e)}", exc_info=True)
