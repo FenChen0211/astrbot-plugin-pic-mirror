@@ -43,6 +43,13 @@ class MessageUtils:
     def extract_image_sources(event) -> List[str]:
         """提取图像源 - 使用标准API"""
         image_sources = []
+        seen_sources = set()
+
+        def add_image_sources(component: Comp.Image) -> None:
+            for source in MessageUtils._extract_image_component_sources(component, event):
+                if source not in seen_sources:
+                    seen_sources.add(source)
+                    image_sources.append(source)
 
         try:
             messages = event.get_messages()
@@ -55,21 +62,14 @@ class MessageUtils:
 
             for component in messages:
                 if isinstance(component, Comp.Image):
-                    url = MessageUtils._extract_from_image_component(component, event)
-                    if url:
-                        image_sources.append(url)
-                        logger.debug(f"提取到图片: {url[:50]}...")
+                    add_image_sources(component)
 
                 elif isinstance(component, Comp.Reply):
                     if hasattr(component, "chain") and component.chain:
                         for reply_component in component.chain:
                             if isinstance(reply_component, Comp.Image):
-                                url = MessageUtils._extract_from_image_component(
-                                    reply_component, event
-                                )
-                                if url:
-                                    image_sources.append(url)
-                                    logger.debug("从回复消息提取到图片")
+                                add_image_sources(reply_component)
+                                logger.debug("从回复消息提取到图片")
 
             logger.debug(f"总共找到 {len(image_sources)} 个图像源")
             return image_sources
@@ -91,11 +91,25 @@ class MessageUtils:
         Returns:
             图像URL或数据
         """
+        sources = MessageUtils._extract_image_component_sources(component, event)
+        return sources[0] if sources else None
+
+    @staticmethod
+    def _extract_image_component_sources(
+        component: Comp.Image, event=None
+    ) -> List[str]:
+        """按可靠性顺序提取一个图片组件的全部可用来源。"""
+        sources = []
+
+        def add_source(value) -> None:
+            if isinstance(value, str) and value and value not in sources:
+                sources.append(MessageUtils._recover_original_gif(event, value))
+
         # AstrBot 4.26.0+ 会将媒体落到本地，并把路径放入 path/file。
         path = getattr(component, "path", None)
         if isinstance(path, str) and path:
             logger.debug("从Image组件找到path属性")
-            return MessageUtils._recover_original_gif(event, path)
+            add_source(path)
 
         file_value = getattr(component, "file", None)
         url = getattr(component, "url", None)
@@ -109,21 +123,22 @@ class MessageUtils:
             )
         ):
             logger.debug("从Image组件找到可直接使用的file属性")
-            return MessageUtils._recover_original_gif(event, file_value)
+            add_source(file_value)
 
         if isinstance(url, str) and url:
             logger.debug("从Image组件找到url属性")
-            return MessageUtils._recover_original_gif(event, url)
+            add_source(url)
 
         for attr_name in ["data", "content"]:
             if hasattr(component, attr_name):
                 attr_value = getattr(component, attr_name)
                 if isinstance(attr_value, str) and attr_value:
                     logger.debug(f"从Image组件找到{attr_name}属性")  # ✅ debug级别
-                    return MessageUtils._recover_original_gif(event, attr_value)
+                    add_source(attr_value)
 
-        logger.debug("Image组件没有找到有效的URL属性")  # ✅ debug级别
-        return None
+        if not sources:
+            logger.debug("Image组件没有找到有效的URL属性")  # ✅ debug级别
+        return sources
 
     @staticmethod
     def _is_direct_image_source(value: str) -> bool:
